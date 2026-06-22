@@ -213,6 +213,21 @@ socket → the custom socket** (see 5.6) so the bare `tailscale` CLI resolves it
 queue (a transient queue blip must not trigger a double-spawn). If a Boss can't be brought up,
 surface a loud error. Verify kills the Boss and asserts it reappears (§15 J4).
 
+**5.3b TODO server: supervise it (like the Boss) + module-level imports + Verify must HIT :9933.**
+Two real one-shot failures observed in the 5-node install test (mp-3), both reproducible holes:
+(1) **Import scoping.** The generated `todo-server.py` raised `UnboundLocalError: cannot access
+local variable 'urllib'` in `do_GET` and the server **died on the FIRST request**. ALWAYS import
+`urllib.parse` / `urllib.request` (and every stdlib module a handler uses) at **MODULE level**;
+**NEVER** re-import inside a method — a local `import urllib…` in any handler makes `urllib`
+function-local, so an earlier `urllib.parse.…` in that handler raises UnboundLocalError. (2)
+**No supervision.** Unlike the Boss (5.3), `todo-server` was not supervised, so that crash left
+`:9933` **permanently dead** while queue-server + HUD + Boss stayed up — a silent PARTIAL that the
+agent still self-reported as PASS. The TODO server MUST run under a userland restart-loop (own
+pidfile, `setsid`, survives the install shell) that respawns it within ~15s whenever `:9933` stops
+answering, exactly like the Boss supervisor. Verify MUST hard-assert `curl :9933/ → 200` **and**
+kill-then-respawn `:9933` (a "process launched" proxy or the agent's self-report is NOT acceptance —
+the install test went green with `:9933` down; the gate must catch that).
+
 **5.4 Per-node fresh Claude login; NEVER copy a token/volume between nodes.** Each node device-
 logs into its OWN credential store once. Copying a live token to a second node rotates refresh
 tokens and breaks BOTH (incl. a shared upstream). Generated code/process must never copy auth.
