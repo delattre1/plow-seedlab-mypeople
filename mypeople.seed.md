@@ -751,6 +751,20 @@ Bare host (shell + authed `claude`). State intent; adapt commands to the host.
 7. **Spawn the Boss** (`mp spawn <host>/main:Boss --master`), wait for its onboarded summary,
    then **start the Boss supervisor** (§5.3). The outer uplink (Step 1) re-announces the Boss.
 8. **Verify** (§14) — exit code is the truth.
+
+> **🔴 HARD — RUN STEPS 7–8 INLINE TO `SEED_RESULT=DONE`; NEVER BACKGROUND THE BOSS-SPAWN OR THE
+> VERIFY, NEVER PARK ON A WAKEUP (folded 2026-06-22, 5-node hydration break-point B2).** The
+> generating agent MUST, in the SAME working turn: (a) spawn the Boss, (b) **block until it has
+> itself observed `<host>/main:Boss` `state=alive` in `GET :9900/agents`** (services answering 200
+> is NOT enough — the inner Boss must be ALIVE in the registry), then (c) run `## Verify` to exit 0,
+> then (d) print `SEED_RESULT=DONE`. It is a **FAILURE** to: launch the Boss-spawn or `## Verify` as
+> a background/detached shell and return; schedule a wakeup / "I'll check later" and yield; or print
+> `SEED_RESULT=DONE` before having inline-confirmed the Boss alive + Verify exit 0. A node whose
+> `:9900`/`:9933` serve 200 but whose `/agents` has **no live Boss** is **NOT done** — that is exactly
+> the half-up state this rule forbids. (Defect: a generating Boss backgrounded Step 7+8 onto two
+> detached shells + a ScheduleWakeup and parked; the wakeup it relied on never drove the work, so the
+> inner Boss was never spawned and Verify never ran — the node sat half-up indefinitely.)
+
 9. **Flip the uplink state** `hydrating`→**`ready`** when Verify passes (or `failed` on a blocker).
    Confirm the node + Boss show on `$UPSTREAM_QUEUE_URL/clients`+`/agents` as `ready`. Keep the
    uplink up for the node's life.
@@ -777,7 +791,10 @@ and asserts the §15 journeys against **absolute values in this spec** — it mu
 any reference mypeople instance or golden screenshot. A blind generate on a clean node must reach
 exit 0 on its own merit. Print each gate's pass/fail line; finish the core path in < 5 min.
 Cleanup must **leave the master Boss alive** (the done-condition needs it in the HUD) and only
-kill ephemeral test workers.
+kill ephemeral test workers. **Run Verify INLINE in the generating turn and BLOCK on it — never
+background/detach it or park on a wakeup (§12 Step 8 HARD rule, B2). `SEED_RESULT=DONE` is valid
+only after the agent has, in that same turn, observed `main:Boss` `alive` in `/agents` AND Verify
+exit 0.**
 
 > **CANONICAL ACCEPTANCE = a SINGLE STANDALONE node with NOTHING pre-existing.** The real test is
 > one fresh host, `UPSTREAM_QUEUE_URL` UNSET, no hub/fleet anywhere, reaching exit 0 on J1–J11 +
