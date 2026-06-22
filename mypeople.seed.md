@@ -601,10 +601,29 @@ a half-typed comment). A page that needs a manual refresh to show a new comment 
 > `document.activeElement` focus + caret position immediately after the DOM merge. Typing must be
 > uninterrupted by the poll. Gated by J34.
 
-**ITEM 2 — cross-navigation (one connected system):** the TODO page has a visible **HUD ↗** link
-to `http://<same-host>:9900/dashboard`, and the HUD has a **TODO ↗** link to
-`http://<same-host>:9933/`. Build the href from the page's own `location.hostname` so it works
-on any node. Verify asserts both links present (§15 J6).
+**ITEM 2 — cross-navigation (one connected system), REMOTE-USABLE behind any tunnel/proxy
+(🔴 HARD; folded 2026-06-22, break-point B3 — a hydrated node must be usable by an OUTSIDE user,
+not just on localhost):** the TODO page has a visible **HUD ↗** link and the HUD a **TODO ↗** link.
+**Every absolute URL the app emits — cross-nav, `attach_base`/`attach_url`, redirects, any `Location`
+header — MUST be derived from the page's EXTERNAL origin, NEVER from a hardcoded inner port or
+`127.0.0.1`/`localhost:<inner-port>`.** A remote user reaches the node through a port-forward /
+reverse-proxy where the **external port ≠ the inner port** (e.g. `:32933→:9933`); the old
+`location.hostname+':9900'` / `+':9933'` form BREAKS there — the link jumps to the *user's own*
+`:9900`/`:9933` (their box, not the node). That was the exact defect (CEO hit it: TODO's HUD↗ went to
+his own central board). Required form, in preference order:
+  1. **Single-origin path routing (best):** serve HUD + TODO under ONE port with distinct paths
+     (`/dashboard`, `/` + `/todos`, shared `/todo/*`, `/agents`) so cross-nav is a **purely relative
+     path** (`href="/dashboard"`, `href="/"`) — no host, no port — and any port-forward "just works".
+  2. **Separate ports:** build every cross/attach URL from the **request's external host**
+     (`X-Forwarded-Host`/`Forwarded`, else `Host`) or an explicit **`PUBLIC_BASE`** env
+     (`PUBLIC_BASE_HUD`/`PUBLIC_BASE_TODO`) — never the inner bind port.
+  `fetch()` stays same-origin RELATIVE (already correct — that's why the API works through a tunnel).
+  **Forbidden in any served byte:** `location.hostname+':9900'`/`+':9933'`, `http://127.0.0.1:<port>`,
+  or `http://localhost:<inner-port>` inside a cross-nav / attach / redirect target.
+Verify asserts both links present AND **remote-usable**: fetch `/` and `/dashboard` through a
+PORT-SHIFTED origin (external port ≠ 9900/9933) and assert the rendered HUD↔TODO (and attach) hrefs
+resolve to the EXTERNAL origin, with **zero** `:9900`/`:9933`/`127.0.0.1` literals in the nav targets
+(§15 J6).
 
 **ITEM 3 — click a commenter's agent name → opens its terminal.** In a card's comment thread,
 when a comment's author (`by`) is an **attachable agent_id** (`…/<sess>:<tab>` form), render the
