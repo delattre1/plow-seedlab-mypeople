@@ -52,6 +52,7 @@ You exit the loop when a brand-new container pastes-and-Verifies the seed with z
 |---|---|
 | The seed (the artifact) | `seeds/mypeople.seed.md` |
 | Boss doctrine (source of truth; inlined into seed at install) | `plans/boss-claude.md` |
+| CTO proxy-agent doctrine (source of truth for seed §8.5) | `plans/cto-claude.md` |
 | User-facing feature list | `plans/features.md` |
 | Capability spec | `plans/capabilities.md` |
 | This handbook | `CLAUDE.md` |
