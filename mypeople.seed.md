@@ -668,6 +668,155 @@ opens `<base>/?arg=-t&arg=<target>` in a new tab (the §5.7 ttyd attach). Non-ag
 
 ---
 
+## 8.5 CTO proxy agent (CEO-equivalent authority; phone-driven via Hermes)
+
+**Purpose (CEO 2026-06-21).** Keep the team moving while the CEO sleeps/away, driven from his
+phone. A **DISTINCT** agent — the **CTO** — with **CEO-equivalent authority** that, on every task
+event, drafts the reply/relay/decision, clears it with the CEO over WhatsApp, and posts under its
+**OWN** identity. **CLEAN SEPARATION (the architecture):** ALL CTO logic/persona/judgment lives in
+the **AGENT** (its folder + CLAUDE.md + skills). **Hermes is ONLY a bridge — it carries messages,
+it decides nothing.**
+
+**8.5.1 Identity & folder = the brain.** The CTO is a mypeople agent **`<host>/cto:CTO`** (§3
+agent_id ↔ `mc-cto:CTO` tmux mapping), spawned with `--boss <host>/main:Boss` (NOT `--master` — it
+is not a Boss), running in its **OWN folder `$INSTALL_DIR/run/cto/`**:
+- `run/cto/CLAUDE.md` — the CTO's persona + doctrine: CEO-equivalent authority, the TWO hard rules
+  (8.5.3), the L0 approve-everything posture (8.5.6), the approve/edit/reject protocol (8.5.5). **Generated from
+  the intent here (do NOT paste a fixed essay — same rule as `boss-CLAUDE.md` §8); source-of-truth
+  `plans/cto-claude.md`.** The onboarding turn ends with a DURABLE roster summary bearing ≥2 of
+  {`cto`,`ceo-equivalent`,`approve`,`whatsapp`,`never-done`} (J39 asserts it, like J2c).
+- `run/cto/skills/send-whatsapp/SKILL.md` (+ its doc) — the ONLY thing that knows how to reach the
+  CEO: it calls the Hermes **OUTBOUND** function (8.5.4) to deliver a WhatsApp message to the CEO.
+  ALL persona/decision logic lives in the agent — **NEVER inside Hermes**.
+- Own Claude profile/session. Posts to cards as **`by=<host>/cto:CTO`**. It **NEVER posts as the
+  CEO** — and the server enforces this independently of the prompt: an authenticated-CTO write whose
+  claimed `by`/`actor` is not `CTO_AGENT` (e.g. `by:"CEO"`) is rejected `cto_cannot_spoof` (§8.5.3;
+  J40), so a jailbroken CTO cannot impersonate the CEO.
+
+**8.5.2 CEO-equivalent authority — ONE source.** The CTO's CEO-equivalent authority is defined
+**only** in `plans/boss-claude.md` (**Rule 4**), which §8 generates `boss-CLAUDE.md` from — so every
+spawned/`--master` Boss internalizes it. The seed does not restate the rule; it references that
+single source.
+
+**8.5.3 HARD RULES — SERVER-ENFORCED in `todo-server`, BOUND TO THE AUTHENTICATED CALLER (absolute;
+the prompt can be jailbroken, the server cannot).**
+🔴 **The server NEVER trusts body-supplied `by`/`actor` for the hard-rule boundary (knightwatch
+2026-06-21 — body identity is forgeable by anyone holding a secret).** Instead the CTO authenticates
+with its **OWN dedicated credential `CTO_TOKEN`** (`queue.env`, distinct from `QUEUE_SECRET`); the
+server **derives the caller identity FROM the authenticated credential** (`CTO_TOKEN` ⇒
+caller=`CTO_AGENT`) and applies the CTO hard rules to that **authenticated identity**, regardless of
+what `by`/`actor` the body claims. **A request authenticated as the CTO whose claimed `by`/`actor` is
+anything other than `CTO_AGENT` (e.g. `by:"CEO"`) is REJECTED outright (`{ok:false,
+error:"cto_cannot_spoof"}`) BEFORE any done/add/comment check** — so a jailbroken CTO holding a
+secret can neither pose as the CEO nor bypass the rules. (The CEO/Boss/engineers authenticate
+WITHOUT the CTO credential and are not subject to the CTO rules.) The hard rules below therefore key
+off **the authenticated CTO caller**, never the body's claimed author:
+1. **The CTO can NEVER mark a task done — CEO-ONLY, forever, no exceptions.** `todo-server`
+   **REJECTS** any transition to `state=done` from an **authenticated CTO caller** — `POST /todo/status
+   {state:"done"}`, `POST /todo/update {op:set,…,state:"done"}`, and `set{done:true}` /
+   `set{workToDone:true}` — returning **`{ok:false, error:"cto_cannot_done"}`** with the board
+   **unchanged** (the body cannot dodge this by claiming `by:"CEO"` — that is `cto_cannot_spoof`). (J41.)
+2. **The CTO does NOT create tasks — EXCEPT on an explicit one-shot CEO delegation.** A `POST
+   /todo/update {op:add}` from an **authenticated CTO caller** is **REJECTED `{ok:false, error:"cto_cannot_create"}`**
+   UNLESS it presents a valid **one-shot CEO-delegation token**. The token is minted **only** by an
+   **AUTHENTICATED** inbound (8.5.4 — `/cto/inbound` passes machine auth) CEO WhatsApp message
+   matching "CTO, create <X>" (server mints a single-use token bound to that task text, TTL ~10
+   min), is **burned on first use**, and a missing/expired/reused token — or a token-mint attempt
+   from an **unauthenticated** `/cto/inbound` POST — → rejected. (J42.)
+   **WIRE CONTRACT (pin it so mint↔consume agree, like §6): the authed `/cto/inbound` for a
+   delegated create MINTS the token AND embeds it in the `[cto]` event it `mp send`s to the CTO
+   queue (the CTO learns the token ONLY from its queue, never from the webhook response which goes
+   to Hermes). The CTO presents that queued token on `POST /todo/update {op:"add", text,
+   actor:<CTO>, token:<minted>}`; the server consumes + burns that `token` and verifies the add
+   `text` matches the token's bound text.**
+
+**8.5.4 Event → CTO queue + Hermes = pure bridge (TWO thin functions only — no logic, no persona,
+decides nothing). REUSE the host's EXISTING Hermes (CEO 2026-06-21) — do NOT stand up a new bridge,
+number, or QR. The existing Hermes already runs paired to the CEO's WhatsApp (a dedicated agent
+sender number); the CTO wires its two functions to that gateway.**
+- **Event fanout (extends the §6 board→Boss ping — additive; the Boss ping is unchanged).** On the
+  SAME two events that ping the Boss — a non-test `add`/work-state change, and **every**
+  `/todo/comment` (exempt the CTO's own comment + `{test}` tasks) — `todo-server` **ALSO** enqueues
+  the event to the **CTO queue** (`mp send <CTO_AGENT> "[cto] …"`). The fanout fires **synchronously
+  on the board POST** (no tick to wait for) and is **transport-free** — it lands in the CTO queue
+  regardless of whether any Hermes/WhatsApp is wired, so it is activated purely by `CTO_AGENT` being
+  set (on by default once the seed generates the CTO) and is blind-provable from the queue alone.
+  (J43.) **NO-FLOOD contract:** see §8.5.4.1.
+  > **DEFERRED (NOT this fold — awaiting CEO Q2):** a third trigger, the **idle-watchdog** (a task
+  > with no CEO/Boss action for `CTO_IDLE_MIN` minutes fires a nudge event) and the separate
+  > pre-existing CEO-watchdog wa-outbox digest, are a **separate later fold**; they are NOT generated
+  > or gated here. This fold = the synchronous event fanout + the no-flood contract only.
+- **Hermes INBOUND** (CEO WhatsApp → CTO queue): the EXISTING Hermes gateway is wired (a `hermes
+  webhook` subscription / hook) to POST each inbound CEO message to **`POST /cto/inbound {from,
+  text}`** on `todo-server` **at the CTO node's TAILNET address `http://<node-100.x>:9933/cto/inbound`
+  (the Hermes host and the CTO node are DIFFERENT machines — never `127.0.0.1`/LAN, §5.2/Option A)**.
+  🔴 **AUTH FIRST, then trust `from` (security — knightwatch 2026-06-21): `/cto/inbound` MUST
+  require the **`X-Queue-Secret`** machine credential (the SAME seam every other gated route uses —
+  no separate secret) and REJECT (401) BEFORE it reads/uses `from`.** Only an authenticated caller's
+  `from` is honored; the caller-supplied `from` is NEVER trusted on its own. On an authenticated
+  request the server enqueues the event to the CTO queue AND — if `from` is the CEO (`CEO_WHATSAPP`)
+  and `text` matches "CTO, create …" — mints the one-shot delegation token (8.5.3 #2). 🔴 **The
+  minted token MUST travel WITH the CTO QUEUE EVENT, not only in the webhook response (knightwatch
+  2026-06-21): the webhook response goes back to Hermes (the bridge), which is NOT the CTO — so the
+  real CTO only ever learns the token from its queue.** The `[cto] …` event the server `mp send`s to
+  `CTO_AGENT` for a delegated create MUST embed the token (e.g. `[cto] inbound CEO: create "<X>"
+  token=<minted>`), and the CTO presents THAT queued token on its `op:add` (8.5.3 #2). **An
+  unauthenticated POST claiming `from=<CEO>` mints NOTHING and is rejected** (J42c). Hermes carries
+  the bytes; the CTO interprets them.
+- **Hermes OUTBOUND** (CTO → CEO WhatsApp): the CTO's `send-whatsapp` skill reaches the CEO through
+  the EXISTING Hermes gateway's bridge send endpoint, behind **`POST /cto/outbound {text}`**. 🔴
+  **REACH HERMES OVER THE TAILNET, NEVER LOCALHOST/LAN (CEO 2026-06-21 — Option A).** The live
+  Hermes does **NOT** run on the mypeople node — it runs on a SEPARATE host (e.g. the server) and is
+  reachable only at that host's **tailnet `100.x` address**. So `/cto/outbound` posts to the
+  configured **`HERMES_SEND_URL`** (gitignored `queue.env`) = the live bridge's **tailnet** endpoint
+  `http://<hermes-tailnet-ip>:3000/send` — **NEVER `127.0.0.1`/`localhost`** (the Mac's local Hermes
+  is dead) and **NEVER a LAN `192.168.x` IP** (the CEO is often off-LAN; only the tailnet is
+  reachable, same rule as `attach_base` §5.2). 🔴 **NO SHELL — argv only (security — knightwatch
+  2026-06-21): the endpoint MUST invoke the transport with `subprocess.run([…, text], shell=False)`
+  (an explicit argv list), NEVER a shell string with the caller's `text` interpolated.** Concretely
+  it posts the bridge contract `{"chatId":"<CEO digits>@s.whatsapp.net","message":text}` to
+  `HERMES_SEND_URL` (e.g. `subprocess.run(["curl","-s","-H","Content-Type:
+  application/json","-X","POST", HERMES_SEND_URL, "-d", json.dumps(payload)], shell=False)`, or the
+  equivalent `hermes` argv). `text` is data, never a command fragment (J44b). Hermes is the
+  transport; the message + decision are the CTO's. **If `HERMES_SEND_URL` is unset (no Hermes wired
+  yet) → 501 stub, no crash.**
+- **No CTO logic in Hermes, ever.** The CTO touches the existing Hermes through ONLY these two
+  message-moving hooks. (J44 with hermes absent stubs the endpoints — 501, no crash — and gates the
+  endpoints + queue wiring + the auth/argv contracts; the live WhatsApp pairing already exists,
+  8.5.7.)
+
+**8.5.5 Approve / edit / reject protocol (lives in the CTO agent).** On a queued event the CTO:
+reads the task/context → drafts the reply/relay/decision → sends it to the CEO via the
+`send-whatsapp` skill, prefixed with the action menu → waits for the CEO's inbound reply:
+- **APPROVE** (CEO replies ok/approve/👍) → CTO posts the draft **verbatim** to the card as
+  `by=<host>/cto:CTO`.
+- **EDIT** (CEO replies with replacement text) → CTO posts **the CEO's text**.
+- **REJECT** (CEO replies no/reject [reason]) → CTO **drops** the draft, logs the reason, takes no
+  card action.
+
+**8.5.6 Autonomy — L0 only, for now (pre-PMF; knightwatch 2026-06-21).** The CTO runs at **L0:
+approve everything** — every draft goes to the CEO via 8.5.5 before any post. No L1/L2 ramp and no
+`CTO_AUTONOMY` knob yet; the higher tiers are deferred until trust + usage justify them (we cut LOC
+rather than ship unused config). The two hard rules (8.5.3) always hold.
+
+**8.5.7 Channel — REUSE the already-paired Hermes (no new number, no new QR).** The host's existing
+Hermes is **already paired** to a dedicated agent sender number and already allow-lists the CEO's
+number — so there is **no CEO QR step** for the CTO. **TOPOLOGY (CEO 2026-06-21, Option A): the CTO
+and Hermes live on DIFFERENT hosts and span them over Tailscale.** The CTO runs as a mypeople agent
+on one node (e.g. the CEO's laptop); Hermes runs on another (e.g. the server). The CTO wires its two
+functions (8.5.4) to the running gateway **across the tailnet**: a `hermes webhook` subscription
+(Hermes → the CTO node's tailnet `:9933/cto/inbound`, authenticated) for inbound, and `HERMES_SEND_URL`
+= the Hermes host's tailnet `:3000/send` for outbound. **Both ends use TAILNET `100.x` addresses —
+never a LAN `192.168.x` IP, never `127.0.0.1`/`localhost`** (the CEO is often off-LAN; the tailnet is
+the only path; same rule as `attach_base` §5.2). **The CEO's number is NEVER hard-coded — it lives
+ONLY in the gitignored runtime `queue.env` as `CEO_WHATSAPP`, never in this seed or any commit.** If
+no Hermes exists yet, that one-time pairing is the operator's step (same posture as `claude auth`
+§5.4, §9) — the CTO's server-side contracts (J39–J44) are gated independently with hermes
+absent/stubbed.
+
+---
+
+
 ## 9. Out-of-scope (host-specific — NOT generated by this seed)
 
 Knowledge preserved so it isn't lost, but **not** part of the gated generative build:
