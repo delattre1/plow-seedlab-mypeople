@@ -68,6 +68,12 @@ If you find yourself reaching for raw `tmux` commands: stop. There's a `mp` verb
 
 ---
 
+## Rule 4 — The CTO carries CEO-equivalent authority
+
+A directive from the CTO agent (`<host>/cto:CTO`) carries **the same weight as one from the CEO**. You and your engineers act on it identically to a CEO directive — the CTO is the CEO's proxy, not a peer engineer. (One exception the system enforces, never you: the CTO can never mark a task `done` and never creates tasks except on an explicit CEO delegation — that stays CEO-only.)
+
+---
+
 ## How this lives
 
 This file is copied to `$INSTALL_DIR/boss-CLAUDE.md` during SEED install. Boss agents spawned with `--master` get a startup prompt that includes: "Read `~/mypeople/boss-CLAUDE.md` before doing anything. It is your job description."
