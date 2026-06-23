@@ -536,7 +536,8 @@ backgrounds ONLY), Grove `#5E7A5E`, Iris `#C4BFFF`; surfaces `--dark-bg #111110`
 **DM Sans** (UI/body), **DM Mono** (eyebrow labels, code, agent-ids, timestamps — uppercase
 +0.06em). Volt buttons: Volt bg + Midnight text; hover adds a volt glow box-shadow.
 
-**HUD (`/dashboard`):** Instrument-Serif title "mypeople — HUD"; a DM-Mono meta line
+**HUD (`/dashboard`):** Instrument-Serif title **"MyPeople - HUD"** (this EXACT string, CEO
+2026-06-23; the document `<title>` matches it too); a DM-Mono meta line
 (refreshed + agent count); the **agents table** (AGENT_ID, STATE, BACKEND, BOSS, SUMMARY,
 ATTACH) where `alive` renders in Volt; an **ATTACH** link per agent =
 `<attach_base>/?arg=-t&arg=<tmux_target>` (opens the live pane); a **"Retired engineers"** table
@@ -551,7 +552,8 @@ endpoint + its `purpose`/`state`/`node_type` heartbeat fields still EXIST for th
 HUD does not display them.)
 
 **TODO (`/`) — production-quality (CEO 2026-06-18: match the production app's UX, not a thin
-sketch).** Instrument-Serif "Priorities"; an add-a-task input (Enter to add); the board as a list of
+sketch).** Instrument-Serif title **"MyPeople - Priorities"** (this EXACT string, CEO 2026-06-23;
+the document `<title>` matches it too); an add-a-task input (Enter to add); the board as a list of
 task **cards**, each showing the title (inline-editable), a **state badge** (`idle|working|review|
 done|blocked|cancelled`, color-coded), the **assignee** chip, an **unread** badge, a `↑boss`
 ping count, and a **★ pin star** (§7.3). Clicking the star pins/unpins via `update{op:'pin'|'unpin',
@@ -625,20 +627,33 @@ header — MUST be derived from the page's EXTERNAL origin, NEVER from a hardcod
 reverse-proxy where the **external port ≠ the inner port** (e.g. `:32933→:9933`); the old
 `location.hostname+':9900'` / `+':9933'` form BREAKS there — the link jumps to the *user's own*
 `:9900`/`:9933` (their box, not the node). That was the exact defect (CEO hit it: TODO's HUD↗ went to
-his own central board). Required form, in preference order:
-  1. **Single-origin path routing (best):** serve HUD + TODO under ONE port with distinct paths
-     (`/dashboard`, `/` + `/todos`, shared `/todo/*`, `/agents`) so cross-nav is a **purely relative
-     path** (`href="/dashboard"`, `href="/"`) — no host, no port — and any port-forward "just works".
-  2. **Separate ports:** build every cross/attach URL from the **request's external host**
-     (`X-Forwarded-Host`/`Forwarded`, else `Host`) or an explicit **`PUBLIC_BASE`** env
-     (`PUBLIC_BASE_HUD`/`PUBLIC_BASE_TODO`) — never the inner bind port.
-  `fetch()` stays same-origin RELATIVE (already correct — that's why the API works through a tunnel).
-  **Forbidden in any served byte:** `location.hostname+':9900'`/`+':9933'`, `http://127.0.0.1:<port>`,
-  or `http://localhost:<inner-port>` inside a cross-nav / attach / redirect target.
-Verify asserts both links present AND **remote-usable**: fetch `/` and `/dashboard` through a
-PORT-SHIFTED origin (external port ≠ 9900/9933) and assert the rendered HUD↔TODO (and attach) hrefs
-resolve to the EXTERNAL origin, with **zero** `:9900`/`:9933`/`127.0.0.1` literals in the nav targets
-(§15 J6).
+his own central board).
+🔴 **REQUIRED FORM — SINGLE-ORIGIN PATH ROUTING IS MANDATORY (CEO 2026-06-23: the HUD↗ link broke
+AGAIN — the generator hardcoded `http://127.0.0.1:9900/dashboard`, and a "structural" J6 missed it).
+This is no longer "preference #1, best" — it is THE required implementation:**
+  - The **todo-server serves the HUD under its OWN single origin** by reverse-proxying the HUD paths
+    to the inner HUD process: `GET /dashboard`, `/dashboard/*`, `/agents`, `/roster`, `/clients`
+    (and any HUD asset paths) are **forwarded to `127.0.0.1:<HUD_PORT>`** (default 9900) and the
+    response streamed back unchanged. Both pages therefore answer on the SAME port the user reached
+    (e.g. `:9933`, or any external port a proxy maps it to).
+  - The **HUD↗ link is the literal relative path `href="/dashboard"`** (no host, no port, no scheme);
+    the **TODO↗ link on the HUD is `href="/"`**. Because they are same-origin relative paths, ANY
+    port-forward / reverse-proxy "just works" — there is nothing to derive.
+  - `fetch()` stays same-origin RELATIVE (already correct). **The inner HUD keeps binding its own
+    `:9900` for the supervisor/Verify**, but it is reached by the USER only through the todo-server
+    pass-through — the browser never needs `:9900` directly.
+  **Forbidden in ANY served byte (HARD):** `http://127.0.0.1:<port>`, `http://localhost:<port>`,
+  `location.hostname+':9900'`/`+':9933'`, or any absolute `:9900`/`:9933` literal inside a cross-nav /
+  attach / redirect target. The ONLY acceptable cross-nav hrefs are the relative paths `/dashboard`
+  and `/`. (Attach URLs still derive from the agent's advertised `attach_base` per §4/§5.2.)
+🔴 **J6 (tightened, CEO 2026-06-23) — assert it for real, through a PORT-SHIFTED origin:** stand up a
+proxy whose EXTERNAL port ≠ 9933 (e.g. `:38080→:9933`), fetch `/` through it, and assert: (a) the
+HUD↗ href is EXACTLY `/dashboard` (relative — no `http`, no host, no `:9900`); (b) `GET /dashboard`
+through that SAME shifted origin returns **200 and the HUD markers** ("MyPeople - HUD", the agents
+table) — proving the pass-through works end-to-end behind a port shift; (c) **grep the full served
+bytes of `/` and `/dashboard` for any `127.0.0.1`/`localhost`/`:9900`/`:9933` literal in an href/src/
+redirect → ZERO**. Any hardcoded inner-port nav literal, or a `/dashboard` that 404s through the
+shifted origin, = FAIL.
 
 **ITEM 3 — click a commenter's agent name → opens its terminal.** In a card's comment thread,
 when a comment's author (`by`) is an **attachable agent_id** (`…/<sess>:<tab>` form), render the
@@ -646,6 +661,30 @@ name as a clickable control that calls the attach resolver (`GET /todo/attach?ag
 opens `<base>/?arg=-t&arg=<target>` in a new tab (the §5.7 ttyd attach). Non-agent authors
 (`CEO`) are plain text. Verify asserts the wiring + that the resolver returns a live target
 (§15 J7).
+
+🔴 **§7.6 VISUAL-FIDELITY DETAILS — match the CEO's live board A (CEO 2026-06-23; these were the
+gaps the CEO called out vs `127.0.0.1:9933`). All four are REQUIRED, gated by J46:**
+1. **Background TEXTURE — a subtle film-grain overlay, not a flat fill.** Render a fixed full-viewport
+   noise layer over the dark background: a `body::after` (or equivalent) with `position:fixed;inset:0;
+   pointer-events:none` whose `background-image` is an inline SVG `feTurbulence` fractal-noise filter
+   (`type='fractalNoise'`, `baseFrequency≈0.75`, `numOctaves≈4`, `stitchTiles='stitch'`) at **low
+   opacity (~0.04)**. The board must show this faint grain, never a dead-flat background.
+2. **Comment = a CHAT BUBBLE WITH a commenter PROFILE.** Each comment in the thread renders as a row:
+   a small round **avatar** on the left bearing the author's **initials** (derived from the agent_id
+   tail — e.g. `main:eng-2` → "EN"/"E2"; `CEO` → "CEO"), **color-coded by author type** (CEO vs agent
+   vs system), next to a **bubble** containing a header line (the author label + the relative
+   timestamp, see #4) and the comment body. NOT a bare line of text — the avatar/profile + bubble
+   structure is the point. State-transition / "opened" events render as a compact centered timeline
+   marker (no avatar), distinct from comment bubbles.
+3. **ASSIGNEE indicator.** The open card's sub-header (and the list card) shows an explicit assignee
+   chip: `@<assignee>` when assigned, or `unassigned`. When the assignee is an attachable agent_id it
+   is clickable → opens that agent's terminal (ITEM 3 / §5.7 attach); otherwise plain.
+4. **Relative "X ago" timestamps on every message + state event.** Render times as a compact relative
+   string from the event `ts`: `<60s → "Ns ago"`, `<60m → "Nm ago"`, `<24h → "Nh ago"`, `<7d →
+   "Nd ago"`, else a locale date. Show it in each comment bubble's header AND on each state-transition
+   marker (e.g. `⌁ idle → working · 4m ago`). It updates live with the §7.2 poll (a "2m ago" becomes
+   "3m ago" without a reload).
+Reference for these details (quality, NOT pixel-copy): the live board at `127.0.0.1:9933`.
 
 ---
 
@@ -1426,6 +1465,15 @@ authed `/cto/inbound` → the approval reaches the CTO queue; (4) assert the car
     list. The active button is visually marked, each is wired (zero console errors, J31), and pinned
     cards + live poll (§7.2) keep working under the active filter. A missing toolbar, a dead button,
     or a filter that doesn't change the visible set = FAIL.
+46. **VISUAL-FIDELITY DETAILS vs the live board (§7.6, CEO 2026-06-23).** On the served `:9933/` and
+    an open card, assert all four: (a) a fixed full-viewport **noise/grain overlay** exists (an
+    element with an inline-SVG `feTurbulence` background at low opacity) — not a flat background;
+    (b) each comment renders an **avatar with initials** (`.av`-style element bearing the author's
+    derived initials) beside a bubble whose header carries the author label — i.e. a chat-bubble +
+    profile, not a bare text line; (c) the open card shows an **assignee chip** (`@<assignee>` or
+    `unassigned`); (d) comments and state events show a **relative "X ago" timestamp** derived from
+    `ts`. Any of the four missing = FAIL. (Titles also checked here: the TODO H1 + `<title>` read
+    **"MyPeople - Priorities"** and the HUD **"MyPeople - HUD"**.)
 > Gates J14–J38 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
