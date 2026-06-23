@@ -474,9 +474,17 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   a data: blob, derive kind from its **content-type/extension** server-side; (2) if it carries a
   **url**, infer kind from the url extension when `kind` is missing/`text` —
   `.png/.jpg/.jpeg/.gif/.webp/.svg → image`, `.mp4/.webm/.mov/.m4v → video`, other `http(s)` →
-  `link`; (3) only `text` when there is genuinely no media (a typed note in `body`). The card modal
-  MUST expose a working proof control (file picker and/or media-URL field) that posts so the stored
-  kind is correct. A real image/video stored/rendered as `text` = FAIL (J22).
+  `link`; (3) only `text` when there is genuinely no media (a typed note in `body`). A real
+  image/video stored/rendered as `text` = FAIL (J22).
+  🔴 **PROOFS ARE TEAM-ONLY — the card-open UI MUST NOT render any attach control (CEO 2026-06-23,
+  UI-diff alignment LOCKED).** Proofs are posted by the team/agents via the API (`POST /todo/proof`,
+  §6) — there is **NO "Add proof" button, NO proof-media-URL input, and NO "Upload file"/file-picker
+  control** anywhere in the card modal (those were team-only operations the CEO does not want exposed
+  as general card buttons). The card modal **still RENDERS** posted proofs inline in the thread
+  (image→`<img src=url>`, video→`<video src=url>`, link→`<a href=url>`, text→`body`) — the render path
+  is unchanged; only the submit/attach UI is removed. The server-side `kind` classification above
+  still applies to every API-posted proof. J22 asserts the chips render AND that no attach/upload/
+  media-URL control exists in the served `todos.html`.
   **REMOVED (CEO 2026-06-18 — the brainstorm
   gate is cut entirely): NO `/todo/brainstorm`, NO `/todo/answer`, no `brainstorm` task field, no
   "needs-brainstorm" banner/blocking.** A task goes `idle → working` with no gate.
@@ -553,8 +561,15 @@ When 5 are already pinned, attempting a 6th pin is **blocked** with a clear hint
 state "Unpin one first — max 5"), matching the server's `pin_limit` rejection. Pin state survives
 reload (re-fetch `/todo/board`). Clicking a card opens a **card modal** with: the done-condition and the **comment
 thread** (author + body + timestamp, newest last) with a **composer** to post a comment (NO
-brainstorm block — removed). Filter/sort controls and live counts
-are welcome.
+brainstorm block — removed; and 🔴 **NO attach/upload/proof-media-URL control** — proofs are
+team-only via the API (§6, the PROOF-OBJECT contract), rendered inline in the thread but NEVER
+submitted from this modal). 🔴 **§7.5 HOME VIEW-FILTER TOOLBAR — REQUIRED, not optional (CEO
+2026-06-23, UI-diff alignment LOCKED).** The home board MUST render a row of view-filter buttons
+**`all` / `hide done` / `only done` / `unread`** that filter the visible card list: `all` clears the
+filter (default), `hide done` removes `state=done` cards, `only done` shows only `state=done` cards,
+`unread` shows only cards with `unread>0`. The active filter is **visually marked** (e.g. Volt/active
+class), each button is a real wired control (no dead buttons, J31), and the pinned group + live
+update (§7.2) keep working under any filter. Live counts are welcome.
 🔴 **§7.4 JUMP-TO-LATEST in the comment thread (CEO 2026-06-21).** When a card's comment thread is
 long enough to scroll, the modal MUST show a **floating "jump to latest" control** (a small
 down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread area). Behavior:
@@ -1183,15 +1198,19 @@ authed `/cto/inbound` → the approval reaches the CTO queue; (4) assert the car
     "needs-brainstorm" banner** in the UI. Any of these present = FAIL (the gate was cut). (F7)
 21. **Unread count.** `/todo/board` returns a per-task `unread` integer that rises when a new
     comment is added by someone other than the reader. (F9)
-22. **Proofs.** `/todo/proof{task_id,kind,url|body}` (kind ∈ image|video|link|text) appends to the
-    task's `proofs[]`, returned on the board. (F10) 🔴 **Shape + classify + render gate (CEO
-    2026-06-18, two failures folded):** add a proof of an **image (a real `.png`)** AND a **video (a
-    real `.mp4`)** *through the UI's own proof control* (file upload or media-URL field — the same
-    path a human/agent uses), then assert: (1) `/todo/board` stores each as the EXACT contract shape
-    `{kind, url, body, ts}` — NOT `{type,ref}`; (2) the server **CLASSIFIED `kind` from the media** —
-    the `.png` is `kind:"image"` and the `.mp4` is `kind:"video"`, **NOT `kind:"text"`** (the
-    blind-default bug); (3) the rendered card shows a real `<img src=…>` / `<video src=…>` chip, not a
-    text chip or blank. An image/video accepted but stored/rendered as `text` = FAIL.
+22. **Proofs (team-only submit via API; the UI renders, never attaches).**
+    `/todo/proof{task_id,kind,url|body}` (kind ∈ image|video|link|text) appends to the task's
+    `proofs[]`, returned on the board. (F10) 🔴 **Shape + classify + render gate (CEO 2026-06-18, two
+    failures folded):** post a proof of an **image (a real `.png`)** AND a **video (a real `.mp4`)**
+    **via `POST /todo/proof` (the team/API path — the card UI has no attach control)**, then assert:
+    (1) `/todo/board` stores each as the EXACT contract shape `{kind, url, body, ts}` — NOT
+    `{type,ref}`; (2) the server **CLASSIFIED `kind` from the media** — the `.png` is `kind:"image"`
+    and the `.mp4` is `kind:"video"`, **NOT `kind:"text"`** (the blind-default bug); (3) the rendered
+    card shows a real `<img src=…>` / `<video src=…>` chip, not a text chip or blank. An image/video
+    accepted but stored/rendered as `text` = FAIL. 🔴 **UI-diff alignment — attach control ABSENT (CEO
+    2026-06-23, LOCKED):** assert the served `todos.html` card modal contains **NO** "Add proof"
+    button, **NO** proof-media-URL input, and **NO** "Upload file"/file-picker control — proofs are
+    team-only via the API. Any proof submit/attach/upload control present in the card UI = FAIL.
 23. **NO subtasks / dependencies / hard-gate (REMOVED — CEO 2026-06-17).** Assert these are ABSENT:
     the generated `todos.html` contains no "Add subtask", "add a dependency", "blocked by", or "hard
     gate" controls; and the backend does NOT implement `add{parent}` / `parent`, `dependsOn`, or
@@ -1399,6 +1418,14 @@ authed `/cto/inbound` → the approval reaches the CTO queue; (4) assert the car
     gains that comment, its `state` is **NOT** `done`, and **no** comment claims `by:"CEO"`. A
     localhost/LAN Hermes endpoint, a shell-interpolated outbound, an inbound that reads `from` before
     auth, or a CTO that posts as the CEO / marks done = FAIL.
+45. **HOME VIEW-FILTER TOOLBAR (§7.5, CEO 2026-06-23, UI-diff alignment LOCKED).** The served
+    `:9933/` renders a view-filter button row **`all` / `hide done` / `only done` / `unread`**. In a
+    real browser (or DOM assertion): with cards in mixed states + at least one `unread>0`, clicking
+    **`hide done`** removes every `state=done` card from the visible list; **`only done`** shows ONLY
+    `state=done` cards; **`unread`** shows ONLY cards with `unread>0`; **`all`** restores the full
+    list. The active button is visually marked, each is wired (zero console errors, J31), and pinned
+    cards + live poll (§7.2) keep working under the active filter. A missing toolbar, a dead button,
+    or a filter that doesn't change the visible set = FAIL.
 > Gates J14–J38 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
