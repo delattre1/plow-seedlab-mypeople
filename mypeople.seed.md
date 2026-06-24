@@ -204,6 +204,25 @@ told). Generated launchers must guarantee this; Verify asserts the ping lands (�
 `http://127.0.0.1:7682/?arg=…` and dead, because 127.0.0.1 is the CEO's OWN laptop, not the
 container he reached over the tailnet).** The rule mirrors the §ITEM-2 cross-nav fix: the attach
 host must be whatever host the CLIENT used to reach the board, NOT a server-baked loopback.
+🔴 **THE ATTACH LINK IS A 3-LAYER CHAIN — every layer must resolve to a client-reachable host, and
+NONE may fall back to `127.0.0.1` (CEO 2026-06-24, Phase-3 consensus: the bug was a 3-LAYER FALLBACK
+COLLAPSE — each layer independently defaulted to loopback, so the final href was a dead
+`http://127.0.0.1:7682/…`. Fixing only the page (dashboard.html) is INCOMPLETE — fix all three):**
+  - **LAYER (a) — `queue-client.py` (the heartbeat) MUST auto-derive `attach_base` from
+    `tailscale ip -4`, UNGATED.** Compute `attach_base = "http://<tailscale-100.x>:<ttyd-port>"` at
+    heartbeat time from the live tailnet IP. **Do NOT gate this on `TTYD_PUBLIC_URL` (or any env)** —
+    that was the root defect: when `TTYD_PUBLIC_URL` was unset the client fell back to
+    `http://127.0.0.1:<ttyd>`. The fallback order is **tailnet IP → (explicit `TTYD_PUBLIC_URL` if
+    set) → empty string**, NEVER `127.0.0.1`. If no tailnet IP is resolvable yet, advertise an EMPTY
+    `attach_base` (the server then emits no attach_url, and the page falls back to the §below
+    client-host derivation) — an empty base is recoverable; a `127.0.0.1` base is a silent dead link.
+  - **LAYER (b) — `queue-server` `/agents` JOINS that `attach_base` and emits `attach_url`** (the §4
+    contract): looks up the owning client's `attach_base`, copies it onto every agent row, and builds
+    `attach_url = "<attach_base>/?arg=-t&arg=<tmux_target>"`. It MUST NOT substitute a `127.0.0.1`
+    default when `attach_base` is empty — emit empty and let layer (c) derive client-side.
+  - **LAYER (c) — `dashboard.html` builds the href from `attach_url` / the client host** (below),
+    never a literal `127.0.0.1`.
+  Gated end-to-end by J47 (all three layers asserted).
 - 🔴 **CLIENT-HOST DERIVATION (the fix).** For an agent that lives on the **same node serving this
   HUD** (the standalone/product case — the dominant one), the HUD builds the ATTACH href CLIENT-SIDE
   from **`window.location.hostname`** (+ the ttyd port + the agent's tmux target):
@@ -1196,6 +1215,15 @@ exit 0.**
     reached REMOTELY (client at the tailnet host → attach opens `<tailnet>:<ttyd>`, reaches the
     container). A hardcoded `127.0.0.1` attach href, a loopback-only ttyd bind, or an attach host that
     differs from the client's reach host = FAIL.
+    🔴 **ALL 3 LAYERS asserted (Phase-3 consensus, CEO 2026-06-24 — fixing only the page is a false
+    pass):** (LAYER a) `GET /clients` (or the heartbeat record) shows this node's `attach_base` =
+    `http://<tailnet-100.x>:<ttyd>` derived from `tailscale ip -4` — **NOT `127.0.0.1`, NOT empty when
+    a tailnet IP exists, NOT gated on `TTYD_PUBLIC_URL`** (assert it's correct with `TTYD_PUBLIC_URL`
+    UNSET); (LAYER b) `GET /agents` returns each live agent with `attach_base` joined + a non-empty
+    `attach_url = "<attach_base>/?arg=-t&arg=<target>"` carrying ZERO `127.0.0.1` literals; (LAYER c)
+    the served `dashboard.html` ATTACH href contains zero `127.0.0.1` and resolves to the client host
+    (above). Any single layer emitting/falling back to `127.0.0.1` = FAIL, even if another layer is
+    correct (the bug was the COLLAPSE of all three).
 > Gates J14–J38 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
