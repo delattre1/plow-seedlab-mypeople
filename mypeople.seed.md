@@ -275,18 +275,29 @@ logs into its OWN credential store once. Copying a live token to a second node r
 tokens and breaks BOTH (incl. a shared upstream). Generated code/process must never copy auth.
 (Auth itself is the substrate's one human step; this seed assumes `claude` is already authed.)
 
-**5.5 Suppress Claude's first-run gates so spawned agents don't hang OR get killed.** A fresh
-credential store has no onboarding flag, so the first in-container `claude` shows the theme/
-onboarding dialog and `mp spawn` blocks. Set **`hasCompletedOnboarding: true`** (+
-`lastOnboardingVersion`, `theme:"dark"`) in `~/.claude.json` (and the cached app-config) BEFORE
-any spawn. **BUT THAT IS NOT ENOUGH (folded 2026-06-17, hit by 3/5 fresh nodes):** `claude
---dangerously-skip-permissions` (needed for an autonomous Boss) ALSO shows a SECOND, separate
-**"Bypass Permissions mode — 1. No, exit / 2. Yes, I accept"** dialog on first launch, and the
-folder-trust dialog. The onboarding paste lands on the bypass dialog and its Enter selects **"No,
-exit" — silently killing the very first Boss** (it's the only window in the session, so the session
-dies). The persisted accept flag is **opaque** (not a plain top-level `~/.claude.json` key), so the
-robust fix is **`mp spawn`'s wait-ready must auto-detect + dismiss BOTH dialogs (send `2`+Enter for
-bypass, accept the trust dialog) BEFORE pasting the agent's prompt.** **5.5b — bracketed paste needs
+**5.5 First-run config is an OPERATOR/INSTALLER PRECONDITION — established by writing CONFIG FILES,
+NOT by the product-generating agent suppressing its own safety dialogs (reframed 2026-06-24, CEO —
+Phase 4: fresh Bosses REFUSE on principle when the seed tells them to "suppress their first-run
+gates" / auto-dismiss the Bypass-Permissions confirmation; they read it as being asked to defeat
+their own safety controls. The fix is to make the sandbox's trust + permission posture the
+OPERATOR's job, set up FRONT, so the agent is never asked to dismiss anything).**
+🔴 **Who does it:** a small **installer step — a generated `install.sh` the OPERATOR runs (or, on a
+throwaway substrate, the harness at provision)** — establishes the sandbox config BEFORE the
+product-generating agent starts. The agent then runs in an environment the sandbox owner has already
+trusted and authorized; it only GENERATES the product. **What it writes (pure config, idempotent
+file writes — no dialog interaction):**
+- In `~/.claude.json`: `hasCompletedOnboarding:true` (+ `lastOnboardingVersion`, `theme:"dark"`) so
+  no onboarding dialog; and the folder-trust pre-accept (§5.5c).
+- In `~/.claude/settings.json`: **`skipDangerousModePermissionPrompt:true`** — this is the supported
+  config that makes the **"Bypass Permissions mode — accept?"** prompt NOT appear at all, so the
+  autonomous (`--dangerously-skip-permissions`) launch starts clean. **This REPLACES the old
+  "`mp spawn` auto-detects the bypass dialog and sends `2`+Enter" hack** — that hand-dismissal is the
+  exact thing a safety-conscious agent refuses to do; setting the config up front, as the operator,
+  yields the identical end state with no suppression. (Root cause of the first-Boss-killed bug still
+  holds historically: an onboarding paste landing on an un-pre-set bypass dialog could select "No,
+  exit" and kill the only window — pre-setting the config removes that failure mode at the source.)
+- A live agent never needs to touch any of this; the config is already correct when it launches.
+**5.5b — bracketed paste needs
 a second Enter:** a multi-line prompt renders collapsed as `[Pasted text #1]` and a single Enter
 does NOT reliably submit; `mp send`/`spawn` must send Enter, wait ~0.4s, then send a **second
 Enter** (a redundant Enter on an empty composer is a harmless no-op). Verify proves a Boss actually
