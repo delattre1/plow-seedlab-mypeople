@@ -749,7 +749,32 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
   `--master` spawn. Capture the doctrine **intent** (do not paste a fixed essay): (1) plan-gate —
   no engineering without a plan + verify (NO brainstorm gate — removed 2026-06-18); (2) autonomous
   loop — keep the team working off the TODO board; (3) fire-and-forget through the queue (`mp`),
-  never raw tmux; (4) the board (`:9900/dashboard` + the TODO) is the source of truth. **The
+  never raw tmux; (4) the board (`:9900/dashboard` + the TODO) is the source of truth.
+  🔴 **(5) FRONT-LOAD an OPERATIONAL QUICKSTART so a FRESH Boss acts correctly on message #1 with
+  ZERO ramp-up (CEO 2026-06-24: the first hydrated Boss BURNED its first message just figuring out
+  HOW to send / how the queue works — the doctrine named `mp` but didn't show the mechanics).**
+  `boss-CLAUDE.md` MUST open with a concrete, copy-pasteable "Operating the queue — do this
+  immediately" block (NOT vague intent), covering:
+  - **`mp` cheat-sheet (exact syntax):** `mp send <agent_id> "<msg>"` (deliver+submit a message to an
+    agent's pane) · `mp peek <agent_id>` (read an agent's live pane) · `mp spawn <host>/main:eng-N
+    --boss <your_id>` (new engineer) · `mp answer <agent_id> <N>` (pick an AskUserQuestion option) ·
+    `mp revive <agent_id>` (un-retire) · `mp status` (list agents). `mp` is already on PATH.
+  - **How a message REACHES you (the flow):** the human (CEO) adds a task or comments on the **TODO
+    board** → the server pings YOU by running `mp send <you> "[todo] task <id> … / comment on <id> …"`
+    → that text lands in your tmux composer (what you're reading). For the FULL context of any task,
+    read the board: `curl -s -H "X-Queue-Secret: $QUEUE_SECRET" http://127.0.0.1:9933/todo/board`
+    (the secret is in `~/.config/mypeople/queue.env`).
+  - **How you RESPOND — two patterns, pick per message:**
+    (a) **Answer the human directly** (a question, a status, an ack): **POST a comment to that card** —
+    `curl -s -X POST -H "X-Queue-Secret: $QUEUE_SECRET" -H 'Content-Type: application/json'
+    -d '{"task_id":"<id>","body":"<your reply>","by":"<your_agent_id>"}'
+    http://127.0.0.1:9933/todo/comment`. That comment is what the human sees on the board — it IS your
+    reply. (b) **Delegate work:** `mp spawn` an engineer, then `mp send` it the task + done-condition;
+    it posts its result back as a `/todo/comment` under its own id and waits.
+  - **First-message rule:** on your very first `[todo]` ping, immediately (1) read the task/comment,
+    (2) decide answer-directly vs delegate, (3) ACT (post the comment, or spawn+send) — do NOT spend
+    the turn rediscovering how to send; the cheat-sheet above is everything you need. (J48.)
+  **The
   onboarding turn MUST end with the Boss writing a DURABLE roster summary that explicitly contains
   ≥2 doctrine keywords** from {`plan`,`approve`,`queue`,`mp`,`autonomous`,`verify`,`fire-and-forget`}
   (J2c asserts this — a generic summary with 0 keywords = FAIL). **Root-cause of the first-try fail
@@ -1235,6 +1260,16 @@ exit 0.**
     the served `dashboard.html` ATTACH href contains zero `127.0.0.1` and resolves to the client host
     (above). Any single layer emitting/falling back to `127.0.0.1` = FAIL, even if another layer is
     correct (the bug was the COLLAPSE of all three).
+48. **BOSS ACTS ON MESSAGE #1 WITH ZERO RAMP-UP (§8 doctrine quickstart, CEO 2026-06-24).** Two
+    checks: (STATIC) the generated `boss-CLAUDE.md` contains the front-loaded operational quickstart —
+    the `mp` cheat-sheet (`send`/`peek`/`spawn`/`answer`/`revive` with syntax), the message-flow
+    (CEO board comment → server `mp send` ping → Boss; read full context via `GET /todo/board`), and
+    the **reply pattern** (`POST /todo/comment {task_id,body,by}` to answer the human; `mp spawn`+`mp
+    send` to delegate). Missing any of these = FAIL. (BEHAVIORAL) post a CEO-style **question** comment
+    to a non-test card (e.g. "Boss, what's your status?"); within the comms window the Boss responds
+    **on its FIRST turn** by posting a `/todo/comment` to that card under its own agent_id (a direct
+    answer) OR spawning an engineer — with NO turn spent discovering how to send. A Boss that asks how
+    to use the queue, or whose first turn produces no board action, = FAIL.
 > Gates J14–J38 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
