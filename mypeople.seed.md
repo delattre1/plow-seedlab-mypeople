@@ -70,9 +70,13 @@ live terminal.
     join. When the server builds the `/agents` response it looks up the owning client by `host`
     and copies that client's `attach_base` onto the agent record, AND emits a ready-built
     `attach_url = "<attach_base>/?arg=-t&arg=<tmux_target>"` (empty string only if the owning
-    client has no `attach_base` yet). The HUD then renders the per-row ATTACH button directly from
-    `attach_url` — no client-side lookup, no broken/empty cell for a live agent whose host is
-    heartbeating. (Root cause of the empty-ATTACH-cell bug: `attach_base` lived only on `/clients`,
+    client has no `attach_base` yet). The HUD renders the per-row ATTACH button from `attach_url`
+    for CROSS-NODE agents — but 🔴 **for an agent on the SAME node serving the HUD it MUST rebuild the
+    host from `window.location.hostname` (the client's address), never the server-baked host** (§5.2,
+    the client-host rule — this is what prevents a dead `127.0.0.1` link when the board is reached
+    remotely). The server MUST NOT put `127.0.0.1`/`localhost` in `attach_base`/`attach_url` at all.
+    No broken/empty cell for a live agent whose host is heartbeating. (Root cause of the
+    empty-ATTACH-cell bug: `attach_base` lived only on `/clients`,
     never joined to the agent row, so the HUD had nothing to build the link from.)
 - **Durability:** the registry is in-memory; each `queue-client` owns a **durable roster**
   (`run/roster.json`, every agent it ever spawned + spawn cmd + cwd + session-id + retire state)
@@ -195,15 +199,34 @@ nohup'd daemon does **not** inherit an interactive shell's PATH, so it MUST be l
 no-ops and add-task never reaches the Boss** (the worst kind of bug — board updates, Boss never
 told). Generated launchers must guarantee this; Verify asserts the ping lands (§15 J3).
 
-**5.2 `attach_base` must advertise the node's TAILNET IP, never a docker-internal/LAN IP.** The
-queue-server joins the owning client's `attach_base` onto each agent row and emits a ready-built
-`attach_url` (§4); the HUD renders every live agent's ATTACH button **directly from that
-`attach_url`** (an `<a href>`/clickable that opens the §5.7 ttyd pane in a new tab). A live agent
-row whose host is heartbeating MUST show a working ATTACH button — never an empty cell. If the
-client advertises `http://172.17.0.x:7681` (docker bridge) the link is dead from the human's machine.
-The client must publish `http://<tailscale-100.x-ip>:7681`. Get the tailnet IP from
-`tailscale ip -4`; **for that to work on a userland/no-systemd tailscaled, symlink the default
-socket → the custom socket** (see 5.6) so the bare `tailscale` CLI resolves it.
+**5.2 The ATTACH button must open an address reachable from the CLIENT — never `127.0.0.1`/
+`localhost`/a docker-internal IP (🔴 HARD; CEO 2026-06-24 — his HUD attach link was
+`http://127.0.0.1:7682/?arg=…` and dead, because 127.0.0.1 is the CEO's OWN laptop, not the
+container he reached over the tailnet).** The rule mirrors the §ITEM-2 cross-nav fix: the attach
+host must be whatever host the CLIENT used to reach the board, NOT a server-baked loopback.
+- 🔴 **CLIENT-HOST DERIVATION (the fix).** For an agent that lives on the **same node serving this
+  HUD** (the standalone/product case — the dominant one), the HUD builds the ATTACH href CLIENT-SIDE
+  from **`window.location.hostname`** (+ the ttyd port + the agent's tmux target):
+  `href = ${location.protocol}//${location.hostname}:${TTYD_PORT}/?arg=-t&arg=${tmux_target}`.
+  This is correct in BOTH required cases with no server knowledge of how it was reached:
+  (a) **local install** → the client is at `localhost`, so the attach opens `localhost:<ttyd>` and
+  works on the same machine; (b) **container reached remotely over the tailnet** → the client reached
+  the board at `http://<node-100.x>:<port>`, so the attach opens `<node-100.x>:<ttyd>` — the
+  CONTAINER's ttyd, reachable. Behind a reverse-proxy the host is likewise the proxy host the client
+  used. **Never emit a hardcoded `127.0.0.1`/`localhost`/`172.17.x`/inner-bind host in the attach
+  href.**
+- **CROSS-NODE (fleet) agents** — an agent whose `host` differs from the node serving the HUD — use
+  that agent's **registered tailnet `attach_base`** from the registry (the §4 server-joined value,
+  which itself MUST be `http://<tailscale-100.x-ip>:<ttyd>`, from `tailscale ip -4`; **on a
+  userland/no-systemd tailscaled, symlink the default socket → the custom socket** (see 5.6) so the
+  bare `tailscale` CLI resolves it). A docker-bridge `http://172.17.0.x:<ttyd>` or a `127.0.0.1`
+  attach_base is dead from the human's machine and is FORBIDDEN in any heartbeat/registry value.
+- 🔴 **ttyd MUST BIND A CLIENT-REACHABLE INTERFACE.** The attach host above only resolves if ttyd is
+  actually listening where the client points. So the product ttyd binds **`0.0.0.0:<ttyd-port>`**
+  (all interfaces, incl. the tailnet `100.x`), NEVER `127.0.0.1`-only. (Loopback-only ttyd is the
+  second half of this bug: even a correct tailnet host can't reach a ttyd bound to 127.0.0.1.)
+A live agent row whose host is heartbeating MUST show a working ATTACH button that opens the live
+pane FROM THE CLIENT'S machine — never an empty cell, never a dead 127.0.0.1 link (§15 J47).
 
 **5.3 Boss supervisor — always exactly one Boss is up.** A tiny userland loop (own pidfile,
 `setsid`, survives the installing shell) checks every ~15s whether the tmux window
@@ -539,8 +562,10 @@ backgrounds ONLY), Grove `#5E7A5E`, Iris `#C4BFFF`; surfaces `--dark-bg #111110`
 **HUD (`/dashboard`):** Instrument-Serif title **"MyPeople - HUD"** (this EXACT string, CEO
 2026-06-23; the document `<title>` matches it too); a DM-Mono meta line
 (refreshed + agent count); the **agents table** (AGENT_ID, STATE, BACKEND, BOSS, SUMMARY,
-ATTACH) where `alive` renders in Volt; an **ATTACH** link per agent =
-`<attach_base>/?arg=-t&arg=<tmux_target>` (opens the live pane); a **"Retired engineers"** table
+ATTACH) where `alive` renders in Volt; an **ATTACH** link per agent that opens the live pane —
+🔴 built per the §5.2 CLIENT-HOST rule: host = `window.location.hostname` for a same-node agent (so
+it works from localhost AND over the tailnet), the agent's tailnet `attach_base` host for a
+cross-node agent — **never a hardcoded `127.0.0.1`/`localhost`**; a **"Retired engineers"** table
 with a per-engineer **Revive** (Volt) button. Polls `/agents`+`/roster` every ~3s.
 
 **§7.1 — REMOVED (CEO 2026-06-18): the generated HUD has NO "MyPeople Hydration" / machines-grid
@@ -1158,6 +1183,19 @@ exit 0.**
     `unassigned`); (d) comments and state events show a **relative "X ago" timestamp** derived from
     `ts`. Any of the four missing = FAIL. (Titles also checked here: the TODO H1 + `<title>` read
     **"MyPeople - Priorities"** and the HUD **"MyPeople - HUD"**.)
+47. **ATTACH BUTTON IS CLIENT-REACHABLE — no dead 127.0.0.1 link (§5.2, CEO 2026-06-24).** With a
+    live agent in the HUD, fetch `/dashboard` through a PORT-SHIFTED / non-loopback origin (simulate
+    the remote client: request the board with `Host: 100.64.0.9:38080`, external port ≠ inner) and
+    assert the rendered ATTACH href: (a) contains **ZERO** `127.0.0.1`/`localhost`/`172.17.`/inner-
+    bind literals; (b) its **host equals the host the client used** to reach the board (i.e.
+    `window.location.hostname` for a same-node agent, or the agent's tailnet `attach_base` host for a
+    cross-node agent) — NOT a server-baked loopback; (c) the ttyd port in the href is one ttyd is
+    actually **listening on `0.0.0.0`** (bound to all interfaces, reachable off-box), verified by
+    asserting ttyd's listen socket is `0.0.0.0:<ttyd>` not `127.0.0.1:<ttyd>`. BOTH install shapes
+    must pass: a LOCAL install (client at localhost → attach opens localhost, works) and a CONTAINER
+    reached REMOTELY (client at the tailnet host → attach opens `<tailnet>:<ttyd>`, reaches the
+    container). A hardcoded `127.0.0.1` attach href, a loopback-only ttyd bind, or an attach host that
+    differs from the client's reach host = FAIL.
 > Gates J14–J38 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
