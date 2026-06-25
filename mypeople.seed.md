@@ -691,9 +691,10 @@ source-of-truth · MyPeople` meta + Volt HUD↗, the 3 stat pills, `.live-pill`+
 missing any of these = FAIL — that is the leaner-page drift §7.0 exists to prevent.)
 
 **TODO (`/`) — production-quality (CEO 2026-06-18: match the production app's UX, not a thin
-sketch).** Instrument-Serif title **"MyPeople - Priorities"** (CEO 2026-06-25 — exactly this
-casing/wordmark; the browser-tab `<title>` tag MUST ALSO be exactly `MyPeople - Priorities`, never
-plain `Priorities` or `Priorities · mypeople`); an add-a-task input (Enter to add); the board as a list of
+sketch).** The VISIBLE Instrument-Serif H1 on the board is exactly **"Priorities"** (CEO 2026-06-25 —
+match live `:9933` exactly; the logo + the meta line carry the "MyPeople" identity, so do NOT render a
+"MyPeople - Priorities" heading or eyebrow line above/beside the H1). The browser-TAB `<title>` tag is
+`MyPeople - Priorities` (tab only — NOT shown on the board). Then: an add-a-task input (Enter to add); the board as a list of
 task **cards**, each showing the title (inline-editable), a **state badge** (`idle|working|review|
 done|blocked|cancelled`, color-coded), the **assignee** chip, an **unread** badge, a `↑boss`
 ping count, and a **★ pin star** (§7.3 — the star is **PIN ONLY; it is NOT the done control** — see
@@ -1284,12 +1285,12 @@ exit 0.**
    **false-green** and is rejected.
 9. **PLOW identity.** BOTH `:9933/` and `:9900/dashboard` carry **Volt `#D5EF8A`** + the Plow
    typefaces (`Instrument Serif`/`DM Sans`/`DM Mono`).
-9a. **Wordmark/titles (CEO 2026-06-25).** The served TODO `:9933/` MUST carry the exact title
-    **`MyPeople - Priorities`** (in the `<title>` tag AND the Instrument-Serif heading); the HUD
-    `:9900/dashboard` MUST carry **`MyPeople - HUD`** likewise. FAIL on plain `Priorities`,
-    `Priorities · mypeople`, or lowercase `mypeople — HUD`:
-    `curl -fsS http://127.0.0.1:9933/ | grep -qF 'MyPeople - Priorities'` AND
-    `curl -fsS http://127.0.0.1:9900/dashboard | grep -qF 'MyPeople - HUD'` MUST both succeed.
+9a. **Wordmark/titles (CEO 2026-06-25, reconciled to match live).** TODO `:9933/`: the browser-TAB
+    `<title>` tag = `MyPeople - Priorities`, but the VISIBLE board H1 (Instrument-Serif) = exactly
+    **`Priorities`** — NO visible "MyPeople - Priorities" heading/eyebrow. HUD `:9900/dashboard` = `MyPeople - HUD`.
+    Assert: served `:9933/` `<title>` contains `MyPeople - Priorities` AND the visible `<h1>` text == `Priorities`
+    (NOT `MyPeople - Priorities`); `:9900/dashboard` contains `MyPeople - HUD`. FAIL if the board renders a
+    visible `MyPeople - Priorities` heading/eyebrow.
 9b. **Status badge displays working/idle (§7.5, CEO 2026-06-25) — the §4 hook WRITES it, the HUD must
     SHOW it.** `/agents` MUST carry a `status` field (not only `state`). `GET /todo/wall` (`:9933`, with
     `X-Queue-Secret`) MUST return tiles each carrying a display `state`. END-TO-END: spawn an agent, send
@@ -1614,8 +1615,8 @@ exit 0.**
     derived initials) beside a bubble whose header carries the author label — i.e. a chat-bubble +
     profile, not a bare text line; (c) the open card shows an **assignee chip** (`@<assignee>` or
     `unassigned`); (d) comments and state events show a **relative "X ago" timestamp** derived from
-    `ts`. Any of the four missing = FAIL. (Titles also checked here: the TODO H1 + `<title>` read
-    **"MyPeople - Priorities"** and the HUD **"MyPeople - HUD"**.)
+    `ts`. Any of the four missing = FAIL. (Titles also checked here: the TODO VISIBLE H1 reads
+    **"Priorities"** while the browser-tab `<title>` is `MyPeople - Priorities`; the HUD is **"MyPeople - HUD"**.)
 47. **ATTACH BUTTON IS CLIENT-REACHABLE — no dead 127.0.0.1 link (§5.2, CEO 2026-06-24).** With a
     live agent in the HUD, fetch `/dashboard` through a PORT-SHIFTED / non-loopback origin (simulate
     the remote client: request the board with `Host: 100.64.0.9:38080`, external port ≠ inner) and
