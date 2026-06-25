@@ -640,6 +640,56 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
   derives each tile's state by reading that agent's status file. (Generative — build the page from the §7
   PLOW tokens + this contract; do NOT paste bytes — Rule 42.)
 
+🔴 **§7.0 — EXACT TODO board layout, component-for-component (CEO 2026-06-25; MATCH live `127.0.0.1:9933`
+1:1; GENERATE from this spec — do NOT paste CSS/HTML, Rule 42; do NOT ship a leaner page). The served
+`:9933/` MUST render ALL of the following, in order, with these exact values:**
+
+**HEADER (`.wrap` > `.brand`):**
+- **Logo `.mark`** — a Volt square: `background:var(--volt) #D5EF8A`, `border-radius:13px`, ~64px, containing
+  a `<span>` **"P"** in **Instrument Serif 38px**, color **Grove `--grove #5e7a5e`** (the P is Grove on Volt).
+- **`<h1>` "Priorities"** — Instrument Serif **34px**, `var(--text-dark)`, weight 400. (EXACTLY `Priorities`
+  — NOT "MyPeople - Priorities". The browser `<title>` tag MAY differ; the visible H1 is `Priorities`.)
+- **Meta line `.subt`** — DM Mono **12px**, uppercase, `var(--muted-dark)`: text
+  **`Boss source-of-truth · MyPeople ·`** followed by an `a.navlink` **`HUD ↗`** in **Volt `--volt`**
+  (uppercase). The HUD link lives INLINE in this meta line (not a separate top-right button).
+
+**COUNTS ROW (`.counts`, DM Mono 12px):**
+- Three **stat pills** (`border-radius:100px`, color `--muted-dark`, transparent/subtle bg): **`<n> done`**,
+  **`<n> open`**, **`<n> total`** (live counts from the board).
+- A **`.live-pill`** — `border-radius:100px`, `background:rgba(213,239,138,0.1)`, Volt text, uppercase,
+  weight 700, containing a **`.live-dot`** (Volt circle, `border-radius:50%`) + the word **`live`**.
+- A **clock** `.subt` showing the current time (DM Mono 12px, `--text-dark`), updating live.
+
+**ADD BAR (`.addbar`):**
+- An **`<input>`** placeholder **`Add a priority and hit Enter…`** — DM Sans **20px**,
+  `background:var(--surface)`, `border-radius:14px`, padding ~16px 20px.
+- A **`button.btn-volt` "Add"** NEXT TO the input — `background:var(--volt)`, color `var(--midnight) #01000A`,
+  `border-radius:14px`, DM Sans 17px weight 700. (Enter in the input AND the Add button both add the task.)
+
+**VIEW BAR (`.viewbar`):**
+- A **`.vb-label` "show"** (DM Mono 10px uppercase muted).
+- The **FULL state-filter chip set** `.chip.st-<state>` (DM Mono 11px, `border-radius:100px`, uppercase,
+  weight 500), each color-coded EXACTLY: **needs brainstorm** = Iris `rgb(196,191,255)` on `rgba(196,191,255,0.18)`;
+  **working** = Warning `rgb(254,188,46)` on `rgba(254,188,46,0.18)`; **review (CEO)** = Info `rgb(90,200,250)`
+  on `rgba(90,200,250,0.16)`; **blocked** = Danger `rgb(255,59,48)` on `rgba(255,59,48,0.16)`; **done** =
+  `rgb(82,216,115)` on `rgba(52,199,89,0.16)`; **cancelled** = muted on `rgba(142,142,147,0.18)`.
+- `.vb-sep` separators (`background:rgba(255,255,255,0.09)`), then **view buttons `button.vbtn`** (DM Mono 11px,
+  `border-radius:9px`, `background:rgba(255,255,255,0.05)`, muted, uppercase): **`all`**, **`hide done`**,
+  **`only done`**, **`unread only · <n>`**. The active filter is highlighted.
+
+**CARD (`li.task`, also `.fresh`/`.done`):** `background:var(--surface)`, `border-radius:18px`. Layout
+`.task-top` = **[`.check` toggle (§7.6)] + `.task-main`**:
+- `.task-text` — Instrument Serif **22px** (struck-through + muted when done).
+- `.meta` row — a color-coded **state `.badge.st-<state>`** (same palette as the chips), an **`.unread-badge`**
+  (Volt bg, Midnight text, radius 100px) when unread>0, a **`.tag.asg-tag`** (`@assignee` or `unassigned`),
+  a **`.badge.st-done.ver` "verified"** when verified, and a **`.ping` "↑boss <n>"** (DM Mono 10px muted).
+- The **★ pin star (§7.3)** sits in the card (pin-only, separate from `.check`).
+
+(VERIFY J-gate: the served `:9933/` MUST contain ALL of `.mark`/logo "P", h1 "Priorities", the `Boss
+source-of-truth · MyPeople` meta + Volt HUD↗, the 3 stat pills, `.live-pill`+`.live-dot`, the clock, the
+`.addbar` input + `.btn-volt` "Add", and the full 6 `.chip.st-*` set + 4 `.vbtn` view buttons. A page
+missing any of these = FAIL — that is the leaner-page drift §7.0 exists to prevent.)
+
 **TODO (`/`) — production-quality (CEO 2026-06-18: match the production app's UX, not a thin
 sketch).** Instrument-Serif title **"MyPeople - Priorities"** (CEO 2026-06-25 — exactly this
 casing/wordmark; the browser-tab `<title>` tag MUST ALSO be exactly `MyPeople - Priorities`, never
