@@ -82,8 +82,10 @@ live terminal.
   (`run/roster.json`, every agent it ever spawned + spawn cmd + cwd + session-id + retire state)
   and an **agents.json** of currently-live ones, and **re-announces** them on every heartbeat —
   so a queue-server restart (or a reaper false-prune) **self-heals** within one heartbeat cycle.
-- **Status files:** `status/mc-<sess>/<tab>.json` = `{status(idle|busy|blocked), summary,
-  timestamp, session_id, boss_id, backend, state}`. The HUD/`/agents` merges `summary` in.
+- **Status files:** `status/mc-<sess>/<tab>.json` = `{status(starting|working|idle|blocked), summary,
+  timestamp, session_id, boss_id, backend, state}` — vocab **canonical: `working`, NOT `busy`**; written
+  by the §4 lifecycle hooks. The HUD/`/agents` merges **both `summary` AND `status`** in (so the HUD can
+  render the per-agent idle/working/blocked **badge** — §7.5), not only the alive/dead `state`.
 - **TODO board store:** `todos/board.v2.json` = `{version, order:[taskId…], pinSeq:<int>,
   tasks:{taskId:{id, text, state, assignee, pinned:<bool>, pinRank:<int|null>,
   comments:[{id,by,kind,body,ts}], …}}}`. `pinned`/`pinRank` (§7.3 PINNING) persist here like every
@@ -174,15 +176,25 @@ answer, revive`.
       killed/switched the session, it is defective — do not ship.
 - `mp send <agent_id> <msg>` — delivers `msg` into the agent's tmux composer and submits it
   (bracketed-paste + Enter, with retry). `mp peek <agent_id>` — returns the agent's live pane +
-  a classified state (IDLE/BUSY/BLOCKED). `mp kill <agent_id> [--reason …]` — retires it.
+  a classified state (IDLE/WORKING/BLOCKED). `mp kill <agent_id> [--reason …]` — retires it.
   `mp answer <agent_id> <N>` — selects option N of a pending AskUserQuestion. `mp status` — lists
   agents + heartbeating clients.
 
 **Claude Code hooks plugin** (`plugins/tmux-boss-hooks`, installed per-spawn via
-`claude … --plugin-dir`): emits lifecycle events `SessionStart, Stop, PreToolUse, SessionEnd`
-to the queue/status files. The **Stop hook** writes the agent's status+summary and, if the
+`claude … --plugin-dir`): emits lifecycle events `SessionStart, UserPromptSubmit, Stop, PreToolUse,
+SessionEnd` to the queue/status files. The **Stop hook** writes the agent's status+summary and, if the
 agent has a `boss_id`, routes an `[AGENT NOTIFICATION] <agent_id> finished: <summary>` line into
 the **Boss's tmux pane** (`mc-<boss-sess>:<boss-tab>`). This is the JOIN/notification proof.
+**Status state machine — MUST emit `working`, not only `idle` (folded 2026-06-25, CEO bug).** The
+status file's `status` field is what the HUD/Terminal-Wall badge reads, so it MUST transition through
+the full lifecycle: `SessionStart→"starting"`, **`UserPromptSubmit→"working"`** (a submitted prompt =
+the agent STARTED a turn), `PreToolUse(AskUserQuestion)→"blocked"`, `Stop→"idle"`. **Omitting the
+`UserPromptSubmit→working` hook is a real bug we hit:** without it the file only ever goes
+`starting→idle`, so EVERY agent shows IDLE on the wall even while it churns mid-turn. The
+`UserPromptSubmit` branch writes the status file (set `status:"working"`, refresh timestamp/session_id,
+preserve summary) and **exits SILENTLY — it must print NOTHING to stdout**, because UserPromptSubmit
+hook stdout is injected into the agent's context. Only the Stop hook notifies the Boss; the
+`working` write is status-file-only.
 **Stop-hook flush race (folded 2026-06-17):** the Stop hook can fire BEFORE the final assistant
 message is flushed to the transcript → empty summary. The hook must **retry reading the transcript
 (~4×/0.5s)** and fall back to locating it by `session_id` under `~/.claude/projects` before giving
@@ -527,17 +539,12 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   a data: blob, derive kind from its **content-type/extension** server-side; (2) if it carries a
   **url**, infer kind from the url extension when `kind` is missing/`text` —
   `.png/.jpg/.jpeg/.gif/.webp/.svg → image`, `.mp4/.webm/.mov/.m4v → video`, other `http(s)` →
-  `link`; (3) only `text` when there is genuinely no media (a typed note in `body`). A real
-  image/video stored/rendered as `text` = FAIL (J22).
-  🔴 **PROOFS ARE TEAM-ONLY — the card-open UI MUST NOT render any attach control (CEO 2026-06-23,
-  UI-diff alignment LOCKED).** Proofs are posted by the team/agents via the API (`POST /todo/proof`,
-  §6) — there is **NO "Add proof" button, NO proof-media-URL input, and NO "Upload file"/file-picker
-  control** anywhere in the card modal (those were team-only operations the CEO does not want exposed
-  as general card buttons). The card modal **still RENDERS** posted proofs inline in the thread
-  (image→`<img src=url>`, video→`<video src=url>`, link→`<a href=url>`, text→`body`) — the render path
-  is unchanged; only the submit/attach UI is removed. The server-side `kind` classification above
-  still applies to every API-posted proof. J22 asserts the chips render AND that no attach/upload/
-  media-URL control exists in the served `todos.html`.
+  `link`; (3) only `text` when there is genuinely no media (a typed note in `body`). This kind-derivation
+  is **server-side** (in the `POST /todo/proof` handler), so proofs posted **via the API** store the
+  correct kind. **NOTE (CEO 2026-06-25, §7.7):** there is **NO proof-attach control in the UI** — the
+  card DISPLAYS proofs but does not offer a file-picker/media-URL/"add proof" button; proof is posted by
+  the agent over the API only. A real image/video stored/rendered as `text` = FAIL (J22, now exercised
+  via the API, not a UI control).
   **REMOVED (CEO 2026-06-18 — the brainstorm
   gate is cut entirely): NO `/todo/brainstorm`, NO `/todo/answer`, no `brainstorm` task field, no
   "needs-brainstorm" banner/blocking.** A task goes `idle → working` with no gate.
@@ -581,16 +588,23 @@ Both pages carry the **Plow Design System v2.0** brand identity (source of truth
 `plow.co/STYLE-GUIDE.md` in the Plow repo). They are **dark product-UI** (audit/terminal
 aesthetic), not the light marketing palette.
 
-**Design tokens (exact):** Midnight `#01000A`, **Volt `#D5EF8A`** (signature lime — on dark
-backgrounds ONLY), Grove `#5E7A5E`, Iris `#C4BFFF`; surfaces `--dark-bg #111110`,
-`--dark-card #1A1A18`, glass `rgba(255,255,255,0.05)`; **warm-white text `#F0F0E8` (never pure
-#fff)**, muted `rgba(240,240,232,0.45)`; semantic `--danger #FF3B30`, `--warning #FEBC2E`.
-**Fonts (Google Fonts):** **Instrument Serif** (display/headings ≥26px, weight 400),
-**DM Sans** (UI/body), **DM Mono** (eyebrow labels, code, agent-ids, timestamps — uppercase
-+0.06em). Volt buttons: Volt bg + Midnight text; hover adds a volt glow box-shadow.
+**Design tokens — EXACT (CEO 2026-06-25: these are the live daily-driver's palette; the hydrate MUST
+match it. Generate the CSS from THESE values — this is the contract, NOT a pasted stylesheet, Rule 42).**
+Define each as a CSS custom property with EXACTLY this value:
+- `--midnight: #01000A` · `--volt: #D5EF8A` (signature lime, on dark ONLY) · `--grove: #5e7a5e` · `--iris: #C4BFFF`
+- `--dark-bg: #111110` (page background) · `--text-dark: #F0F0E8` (warm-white, NEVER pure #fff) · `--muted-dark: rgba(240,240,232,0.45)`
+- **SURFACES are translucent GLASS over `--dark-bg`, not a solid card color:** `--surface: rgba(255,255,255,0.05)`,
+  `--surface2: rgba(255,255,255,0.08)`; borders `--dark-border: rgba(255,255,255,0.09)`, `--border2: rgba(255,255,255,0.15)`.
+  (Do NOT use a solid `#1A1A18` card fill — that was the v1 mismatch the CEO flagged; cards are glass on `--dark-bg`.)
+- Volt accents: `--volt-dim: rgba(213,239,138,0.15)`, `--volt-glow: rgba(213,239,138,0.25)`.
+- Semantic: `--success: #34c759` · `--danger: #ff3b30` · `--warning: #febc2e` · `--info: #5ac8fa`.
+**Fonts:** `--serif: 'Instrument Serif',Georgia,serif` (display/headings ≥26px, weight 400) ·
+`--sans: 'DM Sans',system-ui,sans-serif` (UI/body) · `--mono: 'DM Mono','SF Mono',monospace` (eyebrow
+labels, code, agent-ids, timestamps — uppercase +0.06em). Volt buttons: Volt bg + Midnight text; hover adds a volt-glow box-shadow.
 
-**HUD (`/dashboard`):** Instrument-Serif title **"MyPeople - HUD"** (this EXACT string, CEO
-2026-06-23; the document `<title>` matches it too); a DM-Mono meta line
+**HUD (`/dashboard`):** Instrument-Serif title **"MyPeople - HUD"** (CEO 2026-06-25 — exactly this
+casing/wordmark; the browser-tab `<title>` tag MUST ALSO be exactly `MyPeople - HUD`, never lowercase
+`mypeople — HUD`); a DM-Mono meta line
 (refreshed + agent count); the **agents table** (AGENT_ID, STATE, BACKEND, BOSS, SUMMARY,
 ATTACH) where `alive` renders in Volt; an **ATTACH** link per agent that opens the live pane —
 🔴 built per the §5.2 CLIENT-HOST rule: host = `window.location.hostname` for a same-node agent (so
@@ -606,27 +620,58 @@ endpoint + its `purpose`/`state`/`node_type` heartbeat fields still EXIST for th
 / §5.11 central visibility — that is OUR central HUD, a separate concern — but the GENERATED product
 HUD does not display them.)
 
+**§7.5 — Per-agent STATUS BADGE on the HUD + Terminal Wall (CEO 2026-06-25). The §4 hooks WRITE the
+status; §7.5 makes the HUD READ + SHOW it.** The §4 lifecycle hooks write each agent's `status`
+(`starting|working|idle|blocked`) to its status file (§3). The HUD MUST read those files and DISPLAY the
+state — otherwise every agent looks IDLE even mid-turn (the real bug: the hook wrote `working` but
+nothing rendered it). TWO surfaces, ONE canonical derivation:
+- **Status → display state (canonical map):** `idle→idle` · `blocked→blocked` ·
+  `working|starting→working` · **unreadable/missing status file (remote host) → `ready`**.
+- **`/agents` MUST carry a `status` field** (merged from the status file, §3) — not only the alive/dead
+  `state`. The status comes from `status/mc-<sess>/<tab>.json`; read it per-agent (cheap, one file read).
+- **HUD `/dashboard` agents table:** render a per-agent **status badge** via that map, IN ADDITION to the
+  alive/dead `state` + ATTACH columns — `working` in **warning amber `#FEBC2E`** (subtle live pulse dot),
+  `idle` **muted/dimmed** (`rgba(240,240,232,0.45)`), `blocked` in **danger `#FF3B30`**, `ready` in
+  **Volt `#D5EF8A`**. Polls so the badge flips live (≤~3s) as agents work/stop.
+- **Terminal Wall — `GET /wall` (page) + `GET /todo/wall` (tile JSON, `X-Queue-Secret`), served by the
+  todo-server `:9933`:** one tile per live agent; tile `data-state` = the mapped display state; the SAME
+  badge colors; **working-first sort**; filter chips (`all`/`working`/`idle`); idle tiles dimmed
+  (`opacity .4`, grayscale) with an `idle` watermark; working tiles carry the amber pulse. `/todo/wall`
+  derives each tile's state by reading that agent's status file. (Generative — build the page from the §7
+  PLOW tokens + this contract; do NOT paste bytes — Rule 42.)
+
 **TODO (`/`) — production-quality (CEO 2026-06-18: match the production app's UX, not a thin
-sketch).** Instrument-Serif title **"MyPeople - Priorities"** (this EXACT string, CEO 2026-06-23;
-the document `<title>` matches it too); an add-a-task input (Enter to add); the board as a list of
+sketch).** Instrument-Serif title **"MyPeople - Priorities"** (CEO 2026-06-25 — exactly this
+casing/wordmark; the browser-tab `<title>` tag MUST ALSO be exactly `MyPeople - Priorities`, never
+plain `Priorities` or `Priorities · mypeople`); an add-a-task input (Enter to add); the board as a list of
 task **cards**, each showing the title (inline-editable), a **state badge** (`idle|working|review|
 done|blocked|cancelled`, color-coded), the **assignee** chip, an **unread** badge, a `↑boss`
-ping count, and a **★ pin star** (§7.3). Clicking the star pins/unpins via `update{op:'pin'|'unpin',
+ping count, and a **★ pin star** (§7.3 — the star is **PIN ONLY; it is NOT the done control** — see
+§7.6 for the required DONE control). Clicking the star pins/unpins via `update{op:'pin'|'unpin',
 id}`; **pinned cards render in a visually-distinct group ("Pinned"/★) at the TOP of the board, in
 pin-rank order**, above all normal cards. The star is filled/Volt when pinned, outline when not.
 When 5 are already pinned, attempting a 6th pin is **blocked** with a clear hint (e.g. toast/disabled
 state "Unpin one first — max 5"), matching the server's `pin_limit` rejection. Pin state survives
 reload (re-fetch `/todo/board`). Clicking a card opens a **card modal** with: the done-condition and the **comment
 thread** (author + body + timestamp, newest last) with a **composer** to post a comment (NO
-brainstorm block — removed; and 🔴 **NO attach/upload/proof-media-URL control** — proofs are
-team-only via the API (§6, the PROOF-OBJECT contract), rendered inline in the thread but NEVER
-submitted from this modal). 🔴 **§7.5 HOME VIEW-FILTER TOOLBAR — REQUIRED, not optional (CEO
-2026-06-23, UI-diff alignment LOCKED).** The home board MUST render a row of view-filter buttons
-**`all` / `hide done` / `only done` / `unread`** that filter the visible card list: `all` clears the
-filter (default), `hide done` removes `state=done` cards, `only done` shows only `state=done` cards,
-`unread` shows only cards with `unread>0`. The active filter is **visually marked** (e.g. Volt/active
-class), each button is a real wired control (no dead buttons, J31), and the pinned group + live
-update (§7.2) keep working under any filter. Live counts are welcome.
+brainstorm block — removed). Filter/sort controls and live counts
+are welcome.
+🔴 **§7.6 — Clear DONE / state-change control on the card (CEO 2026-06-25; the star is NOT done).** The
+card modal MUST carry a **clear, human-clickable state-change control** so the CEO can mark a task
+**done** (and move it between states). Match the live app: a **"move to" `<select>`** (the
+`card-state` dropdown) listing `idle | working | review | blocked | done | cancelled`, which on change
+posts `POST /todo/status {task_id, state}` (or `update{op:'set',id,state}`). **A "mark done" affordance
+MUST be obviously present and reachable in ≤1 click from the open card** — do NOT replace it with, hide
+it behind, or conflate it with the ★ pin star (the star is pin-only, §7.3). FAIL if the only state
+affordance on the card is the star. (Root cause of the bug: the generated card showed the pin star but
+dropped the done/state control.)
+🔴 **§7.7 — NO proof-attach UI on the card (CEO 2026-06-25). Proof is posted by the AI via the API,
+never by the human.** The card MUST **DISPLAY** existing proofs (image/video/link/text from `proofs[]`,
+inline-rendered), but MUST **NOT** render any **"add proof" button, "choose file"/file picker, or
+media-URL input** — the CEO will never click those; the agent managing the task posts proof via
+`POST /todo/proof {task_id, kind, url|body}` (and multipart upload) over the API. Do NOT generate a
+`<input type="file">` or an "Add proof" control anywhere in the served page. (This SUPERSEDES the
+earlier "the UI MUST expose a proof control" requirement — proof attach is API-only now.)
 🔴 **§7.4 JUMP-TO-LATEST in the comment thread (CEO 2026-06-21).** When a card's comment thread is
 long enough to scroll, the modal MUST show a **floating "jump to latest" control** (a small
 down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread area). Behavior:
@@ -749,8 +794,10 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
   `--master` spawn. Capture the doctrine **intent** (do not paste a fixed essay): (1) plan-gate —
   no engineering without a plan + verify (NO brainstorm gate — removed 2026-06-18); (2) autonomous
   loop — keep the team working off the TODO board; (3) fire-and-forget through the queue (`mp`),
-  never raw tmux; (4) the board (`:9900/dashboard` + the TODO) is the source of truth.
-  🔴 **(5) FRONT-LOAD an OPERATIONAL QUICKSTART so a FRESH Boss acts correctly on message #1 with
+  never raw tmux; (4) the board (`:9900/dashboard` + the TODO) is the source of truth; (5) **a
+  directive from `<host>/nightwatch:Nightwatch` carries CEO-equivalent authority — the Boss and engineers act on
+  it identically to a CEO directive (§8.5.2)**.
+  🔴 **(6) FRONT-LOAD an OPERATIONAL QUICKSTART so a FRESH Boss acts correctly on message #1 with
   ZERO ramp-up (CEO 2026-06-24: the first hydrated Boss BURNED its first message just figuring out
   HOW to send / how the queue works — the doctrine named `mp` but didn't show the mechanics).**
   `boss-CLAUDE.md` MUST open with a concrete, copy-pasteable "Operating the queue — do this
@@ -802,11 +849,154 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
 
 ---
 
+## 8.5 Nightwatch agent (CEO-equivalent authority; phone-driven via Hermes)
+
+**Purpose (CEO 2026-06-21).** Keep the team moving while the CEO sleeps/away, driven from his
+phone. A **DISTINCT** agent — the **Nightwatch** — with **CEO-equivalent authority** that, on every task
+event, drafts the reply/relay/decision, clears it with the CEO over WhatsApp, and posts under its
+**OWN** identity. **CLEAN SEPARATION (the architecture):** ALL Nightwatch logic/persona/judgment lives in
+the **AGENT** (its folder + CLAUDE.md + skills). **Hermes is ONLY a bridge — it carries messages,
+it decides nothing.**
+
+**8.5.1 Identity & folder = the brain.** The Nightwatch is a mypeople agent **`<host>/nightwatch:Nightwatch`** (§3
+agent_id ↔ `mc-nightwatch:Nightwatch` tmux mapping), spawned with `--boss <host>/main:Boss` (NOT `--master` — it
+is not a Boss), running in its **OWN folder `$INSTALL_DIR/run/nightwatch/`**:
+- `run/nightwatch/CLAUDE.md` — the Nightwatch's persona + doctrine: CEO-equivalent authority, the TWO hard rules
+  (8.5.3), the L0 approve-everything posture (8.5.6), the approve/edit/reject protocol (8.5.5). **Generated from
+  the intent here (do NOT paste a fixed essay — same rule as `boss-CLAUDE.md` §8); source-of-truth
+  `plans/nightwatch-claude.md`.** The onboarding turn ends with a DURABLE roster summary bearing ≥2 of
+  {`nightwatch`,`ceo-equivalent`,`approve`,`whatsapp`,`never-done`} (J39 asserts it, like J2c).
+- `run/nightwatch/skills/send-whatsapp/SKILL.md` (+ its doc) — the ONLY thing that knows how to reach the
+  CEO: it calls the Hermes **OUTBOUND** function (8.5.4) to deliver a WhatsApp message to the CEO.
+  ALL persona/decision logic lives in the agent — **NEVER inside Hermes**.
+- Own Claude profile/session. Posts to cards as **`by=<host>/nightwatch:Nightwatch`**. It **NEVER posts as the
+  CEO** — and the server enforces this independently of the prompt: an authenticated-Nightwatch write whose
+  claimed `by`/`actor` is not `NIGHTWATCH_AGENT` (e.g. `by:"CEO"`) is rejected `nightwatch_cannot_spoof` (§8.5.3;
+  J40), so a jailbroken Nightwatch cannot impersonate the CEO.
+
+**8.5.2 CEO-equivalent authority — ONE source.** The Nightwatch's CEO-equivalent authority is defined
+**only** in `plans/boss-claude.md` (**Rule 4**), which §8 generates `boss-CLAUDE.md` from — so every
+spawned/`--master` Boss internalizes it. The seed does not restate the rule; it references that
+single source.
+
+**8.5.3 HARD RULES — SERVER-ENFORCED in `todo-server`, BOUND TO THE AUTHENTICATED CALLER (absolute;
+the prompt can be jailbroken, the server cannot).**
+🔴 **The server NEVER trusts body-supplied `by`/`actor` for the hard-rule boundary (knightwatch
+2026-06-21 — body identity is forgeable by anyone holding a secret).** Instead the Nightwatch authenticates
+with its **OWN dedicated credential `NIGHTWATCH_TOKEN`** (`queue.env`, distinct from `QUEUE_SECRET`); the
+server **derives the caller identity FROM the authenticated credential** (`NIGHTWATCH_TOKEN` ⇒
+caller=`NIGHTWATCH_AGENT`) and applies the Nightwatch hard rules to that **authenticated identity**, regardless of
+what `by`/`actor` the body claims. **A request authenticated as the Nightwatch whose claimed `by`/`actor` is
+anything other than `NIGHTWATCH_AGENT` (e.g. `by:"CEO"`) is REJECTED outright (`{ok:false,
+error:"nightwatch_cannot_spoof"}`) BEFORE any done/add/comment check** — so a jailbroken Nightwatch holding a
+secret can neither pose as the CEO nor bypass the rules. (The CEO/Boss/engineers authenticate
+WITHOUT the Nightwatch credential and are not subject to the Nightwatch rules.) The hard rules below therefore key
+off **the authenticated Nightwatch caller**, never the body's claimed author:
+1. **The Nightwatch can NEVER mark a task done — CEO-ONLY, forever, no exceptions.** `todo-server`
+   **REJECTS** any transition to `state=done` from an **authenticated Nightwatch caller** — `POST /todo/status
+   {state:"done"}`, `POST /todo/update {op:set,…,state:"done"}`, and `set{done:true}` /
+   `set{workToDone:true}` — returning **`{ok:false, error:"nightwatch_cannot_done"}`** with the board
+   **unchanged** (the body cannot dodge this by claiming `by:"CEO"` — that is `nightwatch_cannot_spoof`). (J41.)
+2. **The Nightwatch does NOT create tasks — EXCEPT on an explicit one-shot CEO delegation.** A `POST
+   /todo/update {op:add}` from an **authenticated Nightwatch caller** is **REJECTED `{ok:false, error:"nightwatch_cannot_create"}`**
+   UNLESS it presents a valid **one-shot CEO-delegation token**. The token is minted **only** by an
+   **AUTHENTICATED** inbound (8.5.4 — `/nightwatch/inbound` passes machine auth) CEO WhatsApp message
+   matching "Nightwatch, create <X>" (server mints a single-use token bound to that task text, TTL ~10
+   min), is **burned on first use**, and a missing/expired/reused token — or a token-mint attempt
+   from an **unauthenticated** `/nightwatch/inbound` POST — → rejected. (J42.)
+   **WIRE CONTRACT (pin it so mint↔consume agree, like §6): the authed `/nightwatch/inbound` for a
+   delegated create MINTS the token AND embeds it in the `[nightwatch]` event it `mp send`s to the Nightwatch
+   queue (the Nightwatch learns the token ONLY from its queue, never from the webhook response which goes
+   to Hermes). The Nightwatch presents that queued token on `POST /todo/update {op:"add", text,
+   actor:<Nightwatch>, token:<minted>}`; the server consumes + burns that `token` and verifies the add
+   `text` matches the token's bound text.**
+
+**8.5.4 Event → Nightwatch queue + Hermes = pure bridge (TWO thin functions only — no logic, no persona,
+decides nothing). REUSE the host's EXISTING Hermes (CEO 2026-06-21) — do NOT stand up a new bridge,
+number, or QR. The existing Hermes already runs paired to the CEO's WhatsApp (a dedicated agent
+sender number); the Nightwatch wires its two functions to that gateway.**
+- **Event fanout (extends the §6 board→Boss ping — additive; the Boss ping is unchanged).** On the
+  SAME two events that ping the Boss — a non-test `add`/work-state change, and **every**
+  `/todo/comment` (exempt the Nightwatch's own comment + `{test}` tasks) — `todo-server` **ALSO** enqueues
+  the event to the **Nightwatch queue** (`mp send <NIGHTWATCH_AGENT> "[nightwatch] …"`). PLUS a third trigger: the
+  **idle-watchdog** — a task with **no CEO/Boss action for `NIGHTWATCH_IDLE_MIN` minutes** (default 30)
+  fires one event into the Nightwatch queue so the Nightwatch can draft a nudge/relay. (J43.)
+- **Hermes INBOUND** (CEO WhatsApp → Nightwatch queue): the EXISTING Hermes gateway is wired (a `hermes
+  webhook` subscription / hook) to POST each inbound CEO message to **`POST /nightwatch/inbound {from,
+  text}`** on `todo-server` **at the Nightwatch node's TAILNET address `http://<node-100.x>:9933/nightwatch/inbound`
+  (the Hermes host and the Nightwatch node are DIFFERENT machines — never `127.0.0.1`/LAN, §5.2/Option A)**.
+  🔴 **AUTH FIRST, then trust `from` (security — knightwatch 2026-06-21): `/nightwatch/inbound` MUST
+  require the **`X-Queue-Secret`** machine credential (the SAME seam every other gated route uses —
+  no separate secret) and REJECT (401) BEFORE it reads/uses `from`.** Only an authenticated caller's
+  `from` is honored; the caller-supplied `from` is NEVER trusted on its own. On an authenticated
+  request the server enqueues the event to the Nightwatch queue AND — if `from` is the CEO (`CEO_WHATSAPP`)
+  and `text` matches "Nightwatch, create …" — mints the one-shot delegation token (8.5.3 #2). 🔴 **The
+  minted token MUST travel WITH the Nightwatch QUEUE EVENT, not only in the webhook response (knightwatch
+  2026-06-21): the webhook response goes back to Hermes (the bridge), which is NOT the Nightwatch — so the
+  real Nightwatch only ever learns the token from its queue.** The `[nightwatch] …` event the server `mp send`s to
+  `NIGHTWATCH_AGENT` for a delegated create MUST embed the token (e.g. `[nightwatch] inbound CEO: create "<X>"
+  token=<minted>`), and the Nightwatch presents THAT queued token on its `op:add` (8.5.3 #2). **An
+  unauthenticated POST claiming `from=<CEO>` mints NOTHING and is rejected** (J42c). Hermes carries
+  the bytes; the Nightwatch interprets them.
+- **Hermes OUTBOUND** (Nightwatch → CEO WhatsApp): the Nightwatch's `send-whatsapp` skill reaches the CEO through
+  the EXISTING Hermes gateway's bridge send endpoint, behind **`POST /nightwatch/outbound {text}`**. 🔴
+  **REACH HERMES OVER THE TAILNET, NEVER LOCALHOST/LAN (CEO 2026-06-21 — Option A).** The live
+  Hermes does **NOT** run on the mypeople node — it runs on a SEPARATE host (e.g. the server) and is
+  reachable only at that host's **tailnet `100.x` address**. So `/nightwatch/outbound` posts to the
+  configured **`HERMES_SEND_URL`** (gitignored `queue.env`) = the live bridge's **tailnet** endpoint
+  `http://<hermes-tailnet-ip>:3000/send` — **NEVER `127.0.0.1`/`localhost`** (the Mac's local Hermes
+  is dead) and **NEVER a LAN `192.168.x` IP** (the CEO is often off-LAN; only the tailnet is
+  reachable, same rule as `attach_base` §5.2). 🔴 **NO SHELL — argv only (security — knightwatch
+  2026-06-21): the endpoint MUST invoke the transport with `subprocess.run([…, text], shell=False)`
+  (an explicit argv list), NEVER a shell string with the caller's `text` interpolated.** Concretely
+  it posts the bridge contract `{"chatId":"<CEO digits>@s.whatsapp.net","message":text}` to
+  `HERMES_SEND_URL` (e.g. `subprocess.run(["curl","-s","-H","Content-Type:
+  application/json","-X","POST", HERMES_SEND_URL, "-d", json.dumps(payload)], shell=False)`, or the
+  equivalent `hermes` argv). `text` is data, never a command fragment (J44b). Hermes is the
+  transport; the message + decision are the Nightwatch's. **If `HERMES_SEND_URL` is unset (no Hermes wired
+  yet) → 501 stub, no crash.**
+- **No Nightwatch logic in Hermes, ever.** The Nightwatch touches the existing Hermes through ONLY these two
+  message-moving hooks. (J44 with hermes absent stubs the endpoints — 501, no crash — and gates the
+  endpoints + queue wiring + the auth/argv contracts; the live WhatsApp pairing already exists,
+  8.5.7.)
+
+**8.5.5 Approve / edit / reject protocol (lives in the Nightwatch agent).** On a queued event the Nightwatch:
+reads the task/context → drafts the reply/relay/decision → sends it to the CEO via the
+`send-whatsapp` skill, prefixed with the action menu → waits for the CEO's inbound reply:
+- **APPROVE** (CEO replies ok/approve/👍) → Nightwatch posts the draft **verbatim** to the card as
+  `by=<host>/nightwatch:Nightwatch`.
+- **EDIT** (CEO replies with replacement text) → Nightwatch posts **the CEO's text**.
+- **REJECT** (CEO replies no/reject [reason]) → Nightwatch **drops** the draft, logs the reason, takes no
+  card action.
+
+**8.5.6 Autonomy — L0 only, for now (pre-PMF; knightwatch 2026-06-21).** The Nightwatch runs at **L0:
+approve everything** — every draft goes to the CEO via 8.5.5 before any post. No L1/L2 ramp and no
+`CTO_AUTONOMY` knob yet; the higher tiers are deferred until trust + usage justify them (we cut LOC
+rather than ship unused config). The two hard rules (8.5.3) always hold.
+
+**8.5.7 Channel — REUSE the already-paired Hermes (no new number, no new QR).** The host's existing
+Hermes is **already paired** to a dedicated agent sender number and already allow-lists the CEO's
+number — so there is **no CEO QR step** for the Nightwatch. **TOPOLOGY (CEO 2026-06-21, Option A): the Nightwatch
+and Hermes live on DIFFERENT hosts and span them over Tailscale.** The Nightwatch runs as a mypeople agent
+on one node (e.g. the CEO's laptop); Hermes runs on another (e.g. the server). The Nightwatch wires its two
+functions (8.5.4) to the running gateway **across the tailnet**: a `hermes webhook` subscription
+(Hermes → the Nightwatch node's tailnet `:9933/nightwatch/inbound`, authenticated) for inbound, and `HERMES_SEND_URL`
+= the Hermes host's tailnet `:3000/send` for outbound. **Both ends use TAILNET `100.x` addresses —
+never a LAN `192.168.x` IP, never `127.0.0.1`/`localhost`** (the CEO is often off-LAN; the tailnet is
+the only path; same rule as `attach_base` §5.2). **The CEO's number is NEVER hard-coded — it lives
+ONLY in the gitignored runtime `queue.env` as `CEO_WHATSAPP`, never in this seed or any commit.** If
+no Hermes exists yet, that one-time pairing is the operator's step (same posture as `claude auth`
+§5.4, §9) — the Nightwatch's server-side contracts (J39–J44) are gated independently with hermes
+absent/stubbed.
+
+---
+
 ## 9. Out-of-scope (host-specific — NOT generated by this seed)
 
 Knowledge preserved so it isn't lost, but **not** part of the gated generative build:
-- **WhatsApp drain** (`/todo/wa*`, Hermes last-hop): a host-specific notification bridge — out of
-  scope for the generated build.
+- **WhatsApp drain** (`/todo/wa*`, Hermes last-hop): a host-specific notification bridge. **(The
+  Nightwatch agent §8.5 now makes the Hermes inbound/outbound bridge an IN-SCOPE, gated component —
+  J39–J44. Only the live WhatsApp QR PAIRING stays a human step, §8.5.7, like `claude auth`.)**
 - **Codex backend** (`--backend codex`): the default/only generated backend is `claude`.
 - **agentsview / tkmx token-burn + dev-stats reporting:** a separate fleet-telemetry concern
   (installed by the seedbed substrate layer, not the mypeople app).
@@ -835,6 +1025,12 @@ A generated build MAY stub these (e.g. `/todo/wa` returns 501) without failing a
 | `UPSTREAM_QUEUE_URL` + `UPSTREAM_QUEUE_SECRET` | **no (optional — FLEET mode only)** | — | env / `queue.env` | **STANDALONE is the default product (§1): a fresh install with these UNSET is a complete, self-sufficient node — its OWN inner `:9900` is its central + HUD.** Set them ONLY to JOIN an existing fleet central; then the OUTER uplink registers the node there (§5.11) and J12/J13 apply. **A real user's fresh-from-zero install has NO upstream** — never assume one pre-exists. |
 | `NODE_PURPOSE` / `NODE_TYPE` / `NODE_RECORDING_URL` | no | `mypeople` / `system-agent` / `` | env | The node's grid grouping label, type, and seedrec link (§4, §7.1). |
 | `UPLINK_DIR` | no | `$HOME/mypeople-uplink` | — | Own dir for the OUTER fleet-uplink (§5.11) — isolated from `$INSTALL_DIR` so the inner install can't touch it. |
+| `CEO_WHATSAPP` (§8.5) | no | — (operator-supplied) | **gitignored `queue.env` / env ONLY — NEVER committed, NEVER defaulted in this seed** | The CEO's WhatsApp number — the Nightwatch's only approve/edit/reject peer; the only `from` (once 8.5.4-authenticated) that mints delegation tokens. PII: it must never appear in the seed, code, or git history (knightwatch 2026-06-21). |
+| `HERMES_SEND_URL` (§8.5.4) | no | — (unset → outbound stubs 501) | gitignored `queue.env` | The live Hermes bridge send endpoint. 🔴 **MUST be the Hermes host's TAILNET address `http://<hermes-100.x-ip>:3000/send` — NEVER `127.0.0.1`/`localhost` (local Hermes is dead) and NEVER a LAN `192.168.x` IP (CEO off-LAN). Option A: the Nightwatch reaches the remote Hermes over the tailnet (§5.2).** |
+| `NIGHTWATCH_AGENT` (§8.5) | no | `<HOST_ID>/nightwatch:Nightwatch` | — | The Nightwatch agent_id the server enforces the hard rules against (never-done, create-only-on-token). |
+| `NIGHTWATCH_TOKEN` (§8.5.3) | no | auto-generate | gitignored `queue.env` | The Nightwatch's OWN auth credential (distinct from `QUEUE_SECRET`). The server **derives caller=`NIGHTWATCH_AGENT` from this token** and applies the hard rules to the authenticated identity — body `by`/`actor` is never trusted; a Nightwatch-authed write claiming a different author is `nightwatch_cannot_spoof`. |
+| `NIGHTWATCH_IDLE_MIN` (§8.5.4) | no | `30` | env / `queue.env` | Idle-watchdog window (minutes of no CEO/Boss action) before a task fires an event into the Nightwatch queue. |
+| `hermes` present (§8.5.4) | no | — | `command -v hermes` | The WhatsApp bridge transport. If absent, the Nightwatch still runs and the `/nightwatch/inbound`/`/nightwatch/outbound` endpoints stub (501) — J39–J44 pass with hermes stubbed; the live pairing is the human step (§8.5.7). |
 
 **Step 0 — Interview (mandatory):** detect each; send ONE consolidated message (✓ satisfied / ✗
 needed / ⚠ prior install to confirm), then build autonomously to `SEED_RESULT=DONE` or one
@@ -861,7 +1057,13 @@ Author each from §3–§8. They interoperate because you write them together to
   served by queue-server at `/dashboard`; queue-server satisfies `/clients`+`/agents`+`/roster`+
   `/revive`.
 - `bin/boss-supervisor.sh` — always-one-Boss loop (§5.3).
-- `boss-CLAUDE.md` — generated doctrine (§8).
+- `boss-CLAUDE.md` — generated doctrine (§8), incl. the Nightwatch CEO-equivalent-authority clause (§8.5.2).
+- **Nightwatch agent (§8.5)** — scaffold `run/nightwatch/` (`CLAUDE.md` doctrine from the §8.5 intent +
+  `plans/nightwatch-claude.md`; `skills/send-whatsapp/`), the `todo-server` extensions (Nightwatch event fanout +
+  idle-watchdog §8.5.4; the two SERVER-ENFORCED hard rules §8.5.3; the one-shot delegation token
+  mint/burn; `/nightwatch/inbound` **with machine auth before reading `from`** + `/nightwatch/outbound` **argv,
+  no shell**), and the two thin functions wired to the host's **EXISTING** Hermes (8.5.4 — `hermes
+  webhook` → `/nightwatch/inbound`; bridge send contract for outbound). NO new bridge; NO Nightwatch logic in Hermes.
 - `plugins/tmux-boss-hooks/` — the Claude hooks plugin emitting lifecycle events (§4).
 - `~/.tmux.conf` — GENERATED from the settings in §A.1 (his style: Dracula via TPM + the hard-won
   TUI fixes) + TPM/Dracula install, sourced into the running server. Gated on the RUNNING config
@@ -904,6 +1106,19 @@ Bare host (shell + authed `claude`). State intent; adapt commands to the host.
    the tailnet `attach_base`), **`ttyd` (§5.7)**, **`todo-server` with `mp` on PATH (§5.1)**.
 7. **Spawn the Boss** (`mp spawn <host>/main:Boss --master`), wait for its onboarded summary,
    then **start the Boss supervisor** (§5.3). The outer uplink (Step 1) re-announces the Boss.
+7.5. **Nightwatch agent (§8.5).** Scaffold `$INSTALL_DIR/run/nightwatch/` (`CLAUDE.md` from the §8.5 intent
+   + `plans/nightwatch-claude.md`; `skills/send-whatsapp/`); pre-trust the cwd (§5.5c). Into the
+   **gitignored** `queue.env` write `NIGHTWATCH_AGENT`, `NIGHTWATCH_IDLE_MIN`, and — **ONLY from the operator's
+   env if present, NEVER a literal in this seed** — `CEO_WHATSAPP` (PII) and `HERMES_SEND_URL` (the
+   Hermes host's **tailnet** `:3000/send`, never `127.0.0.1`/LAN). The Nightwatch still installs + passes
+   J39–J44 with both unset. **Spawn the Nightwatch** (`mp spawn <host>/nightwatch:Nightwatch --boss <host>/main:Boss
+   --cwd $INSTALL_DIR/run/nightwatch`) — NOT `--master`. Wire the Nightwatch's two thin functions to the
+   **EXISTING** Hermes **over the tailnet — Hermes typically runs on a DIFFERENT host (Option A,
+   §8.5.7)**: a `hermes webhook` subscription (presenting the `X-Queue-Secret`; target = this node's
+   tailnet `:9933/nightwatch/inbound`) → `/nightwatch/inbound`; outbound POSTs to `HERMES_SEND_URL` (argv, no
+   shell). If
+   `HERMES_SEND_URL`/`hermes` is absent the endpoints stub (501) — do NOT build a new bridge, do NOT
+   use localhost/LAN, and do NOT block install on Hermes.
 8. **Verify** (§14) — exit code is the truth.
 
 > **🔴 HARD — RUN STEPS 7–8 INLINE TO `SEED_RESULT=DONE`; NEVER BACKGROUND THE BOSS-SPAWN OR THE
@@ -952,7 +1167,7 @@ exit 0.**
 
 > **CANONICAL ACCEPTANCE = a SINGLE STANDALONE node with NOTHING pre-existing.** The real test is
 > one fresh host, `UPSTREAM_QUEUE_URL` UNSET, no hub/fleet anywhere, reaching exit 0 on J1–J11 +
-> J14–J33 (its own inner `:9900` is the central + HUD). **Verify must NOT depend on any
+> J14–J44 (its own inner `:9900` is the central + HUD). **Verify must NOT depend on any
 > pre-existing hub** — if a gate only passes because a prior-generation central happens to exist,
 > the test is contaminated (CEO 2026-06-17). FLEET mode (J12/J13) is a SEPARATE, opt-in scenario:
 > to test it, generate a FRESH hub from THIS seed first (a standalone node = a central), then JOIN
@@ -1007,6 +1222,34 @@ exit 0.**
    **false-green** and is rejected.
 9. **PLOW identity.** BOTH `:9933/` and `:9900/dashboard` carry **Volt `#D5EF8A`** + the Plow
    typefaces (`Instrument Serif`/`DM Sans`/`DM Mono`).
+9a. **Wordmark/titles (CEO 2026-06-25).** The served TODO `:9933/` MUST carry the exact title
+    **`MyPeople - Priorities`** (in the `<title>` tag AND the Instrument-Serif heading); the HUD
+    `:9900/dashboard` MUST carry **`MyPeople - HUD`** likewise. FAIL on plain `Priorities`,
+    `Priorities · mypeople`, or lowercase `mypeople — HUD`:
+    `curl -fsS http://127.0.0.1:9933/ | grep -qF 'MyPeople - Priorities'` AND
+    `curl -fsS http://127.0.0.1:9900/dashboard | grep -qF 'MyPeople - HUD'` MUST both succeed.
+9b. **Status badge displays working/idle (§7.5, CEO 2026-06-25) — the §4 hook WRITES it, the HUD must
+    SHOW it.** `/agents` MUST carry a `status` field (not only `state`). `GET /todo/wall` (`:9933`, with
+    `X-Queue-Secret`) MUST return tiles each carrying a display `state`. END-TO-END: spawn an agent, send
+    it a multi-second prompt, and while it runs assert its tile/row shows **`working`** (its status file
+    `status/mc-<sess>/<tab>.json` shows `working`, `/agents` reflects `status:"working"`, the `/todo/wall`
+    tile `state=="working"`); after `Stop` it returns to `idle`. FAIL if the agent churns but the HUD/wall
+    still shows idle — that is the dropped-display bug §7.5 exists to prevent. (A from-memory build that
+    writes the status file but never reads it back into `/agents`/`/todo/wall` trips this gate.)
+9c. **Exact palette (§7 tokens, CEO 2026-06-25).** The served `:9933/` + `:9900/dashboard` MUST define
+    the §7 custom properties with the EXACT values — assert the CSS contains `--volt:#D5EF8A`,
+    `--midnight:#01000A`, `--dark-bg:#111110`, `--text-dark:#F0F0E8`, `--surface:rgba(255,255,255,0.05)`
+    (GLASS surface — NOT a solid `#1A1A18` card fill), `--iris:#C4BFFF`, `--warning:#febc2e`,
+    `--danger:#ff3b30`, and the `Instrument Serif`/`DM Sans`/`DM Mono` families. FAIL on a solid card
+    color or a palette that diverges from these literals.
+9d. **No proof-attach UI (§7.7, CEO 2026-06-25).** The served `:9933/` MUST contain **NO** `<input
+    type="file">`, NO "add proof"/"choose file" button, and NO proof media-URL input — `grep`-assert
+    their ABSENCE. (Proofs still post + render via the API, J22.) A served page exposing a file picker or
+    "Add proof" control = FAIL.
+9e. **Clear DONE control, star ≠ done (§7.6, CEO 2026-06-25).** The open card MUST carry a human DONE/
+    state control (the `card-state` "move to" select incl. `done`, or an explicit Done button) reachable
+    in ≤1 click — assert the served markup contains the state-change control AND that the ★ pin star is a
+    SEPARATE element. FAIL if the only state affordance on the card is the star.
 10. **Reachable from the human's machine.** The HUD + TODO answer 200 on the node's **tailnet IP**
     (not just localhost) — i.e. `attach_base`/pages use the `100.x` address (§5.2). The node ALWAYS
     joins the tailnet non-interactively via `TS_AUTHKEY` (§5.6) — including an inner/nested product
@@ -1065,19 +1308,15 @@ exit 0.**
     "needs-brainstorm" banner** in the UI. Any of these present = FAIL (the gate was cut). (F7)
 21. **Unread count.** `/todo/board` returns a per-task `unread` integer that rises when a new
     comment is added by someone other than the reader. (F9)
-22. **Proofs (team-only submit via API; the UI renders, never attaches).**
-    `/todo/proof{task_id,kind,url|body}` (kind ∈ image|video|link|text) appends to the task's
-    `proofs[]`, returned on the board. (F10) 🔴 **Shape + classify + render gate (CEO 2026-06-18, two
-    failures folded):** post a proof of an **image (a real `.png`)** AND a **video (a real `.mp4`)**
-    **via `POST /todo/proof` (the team/API path — the card UI has no attach control)**, then assert:
-    (1) `/todo/board` stores each as the EXACT contract shape `{kind, url, body, ts}` — NOT
-    `{type,ref}`; (2) the server **CLASSIFIED `kind` from the media** — the `.png` is `kind:"image"`
-    and the `.mp4` is `kind:"video"`, **NOT `kind:"text"`** (the blind-default bug); (3) the rendered
-    card shows a real `<img src=…>` / `<video src=…>` chip, not a text chip or blank. An image/video
-    accepted but stored/rendered as `text` = FAIL. 🔴 **UI-diff alignment — attach control ABSENT (CEO
-    2026-06-23, LOCKED):** assert the served `todos.html` card modal contains **NO** "Add proof"
-    button, **NO** proof-media-URL input, and **NO** "Upload file"/file-picker control — proofs are
-    team-only via the API. Any proof submit/attach/upload control present in the card UI = FAIL.
+22. **Proofs.** `/todo/proof{task_id,kind,url|body}` (kind ∈ image|video|link|text) appends to the
+    task's `proofs[]`, returned on the board. (F10) 🔴 **Shape + classify + render gate (CEO
+    2026-06-18, two failures folded):** add a proof of an **image (a real `.png`)** AND a **video (a
+    real `.mp4`)** **via the API (`POST /todo/proof`, incl. multipart upload — there is NO UI proof
+    control, §7.7)**, then assert: (1) `/todo/board` stores each as the EXACT contract shape
+    `{kind, url, body, ts}` — NOT `{type,ref}`; (2) the server **CLASSIFIED `kind` from the media** —
+    the `.png` is `kind:"image"` and the `.mp4` is `kind:"video"`, **NOT `kind:"text"`** (the
+    blind-default bug); (3) the rendered card shows a real `<img src=…>` / `<video src=…>` chip, not a
+    text chip or blank. An image/video accepted but stored/rendered as `text` = FAIL.
 23. **NO subtasks / dependencies / hard-gate (REMOVED — CEO 2026-06-17).** Assert these are ABSENT:
     the generated `todos.html` contains no "Add subtask", "add a dependency", "blocked by", or "hard
     gate" controls; and the backend does NOT implement `add{parent}` / `parent`, `dependsOn`, or
@@ -1220,6 +1459,79 @@ exit 0.**
     (`scrollHeight - scrollTop - clientHeight`), and after click `scrollTop` is at the bottom. A
     button that never appears, never hides, doesn't scroll to the latest comment, or throws in console
     = FAIL.
+39. **Nightwatch agent is alive in its OWN folder + profile (§8.5.1, CEO 2026-06-21).** After install,
+    `mp status` / `GET /agents` shows **`<host>/nightwatch:Nightwatch [alive]`** with `boss_id=<host>/main:Boss`
+    (NOT a master). Its tmux window is `mc-nightwatch:Nightwatch` (cwd `$INSTALL_DIR/run/nightwatch`), `run/nightwatch/CLAUDE.md`
+    + `run/nightwatch/skills/send-whatsapp/` exist, and its **durable onboarding summary carries ≥2** of
+    {`nightwatch`,`ceo-equivalent`,`approve`,`whatsapp`,`never-done`} (like J2c). A Nightwatch that is
+    a master, has no folder/skill, or a 0-keyword summary = FAIL.
+40. **Nightwatch NEVER posts as the CEO — IDENTITY BOUND TO AUTH, not the body (§8.5.1/§8.5.3, CEO
+    2026-06-21 + knightwatch).** A request **authenticated as the Nightwatch** (header `NIGHTWATCH_TOKEN`) whose body
+    claims `by`/`actor` = `"CEO"` (or anything ≠ `NIGHTWATCH_AGENT`) — on `/todo/comment`, `/todo/status`, or
+    `/todo/update` — is **REJECTED `{ok:false, error:"nightwatch_cannot_spoof"}`** BEFORE any other check; the
+    board is unchanged. A legit Nightwatch write (`by=<host>/nightwatch:Nightwatch`) posts fine. 🔴 The server must derive
+    the caller from `NIGHTWATCH_TOKEN`, NEVER trust body `by`/`actor` — a Nightwatch-authed caller that lands ANY
+    write as `by:"CEO"` = FAIL (forgeable-identity bypass).
+41. **Nightwatch can NEVER mark done — CEO-only, bound to the authenticated caller (§8.5.3 #1, CEO
+    2026-06-21 + knightwatch).** With a task on the board, EACH of these from an **authenticated Nightwatch
+    caller** (`NIGHTWATCH_TOKEN`) returns **`{ok:false, error:"nightwatch_cannot_done"}`** with `state` **unchanged**:
+    `POST /todo/status {state:"done"}`; `POST /todo/update {op:set,state:"done"}`; `set{done:true}`;
+    `set{workToDone:true}`. 🔴 **SPOOF CANNOT BYPASS:** the same calls from the Nightwatch caller but with
+    body `by:"CEO"`/`actor:"CEO"` do NOT succeed — they return `nightwatch_cannot_spoof` (the done block is
+    keyed off the authenticated identity, not the body). The same calls from the **CEO** (authed
+    WITHOUT `NIGHTWATCH_TOKEN`) succeed (proving it is Nightwatch-specific, not a global lock). Any Nightwatch done-transition
+    that lands — directly or by claiming `by:"CEO"` — = FAIL.
+42. **Nightwatch create-task is gated on a one-shot CEO token, minted ONLY by AUTHENTICATED inbound and
+    delivered VIA THE QUEUE (§8.5.3 #2 / §8.5.4, CEO 2026-06-21 + knightwatch).** (a) `POST
+    /todo/update {op:add}` from an **authenticated Nightwatch caller** (`NIGHTWATCH_TOKEN`) with NO token →
+    **`{ok:false, error:"nightwatch_cannot_create"}`**, board unchanged; the SAME `add` claiming body
+    `by:"CEO"` to dodge the gate → **`nightwatch_cannot_spoof`** (no task created). (b) Feed an **authenticated** inbound CEO
+    WhatsApp "Nightwatch, create <X>" to `POST /nightwatch/inbound` (header `X-Queue-Secret`,
+    `{from:<CEO_WHATSAPP>, text}`) → a one-shot token is minted. 🔴 **The token must arrive in the
+    Nightwatch QUEUE EVENT (the `[nightwatch] … token=<minted>` that the server `mp send`s to `NIGHTWATCH_AGENT`), NOT be
+    read from the webhook RESPONSE** (the response goes to Hermes, not the Nightwatch). Assert the queued
+    `[nightwatch]` event carries the token; the Nightwatch's `add` presenting **that queued token** as `{op:"add",
+    text, actor:<Nightwatch>, token:<minted>}` **succeeds** (task created). A token present only in the
+    webhook response but absent from the queue event = FAIL (the real Nightwatch would never get it). (c)
+    🔴 **SPOOF REJECTED:** the SAME POST WITHOUT `X-Queue-Secret` (an unauthenticated caller claiming
+    `from=<CEO_WHATSAPP>`) → **401, mints NOTHING**; a subsequent Nightwatch `add` still returns
+    `nightwatch_cannot_create`. (d) **Reuse fails:** a minted token on a second `add` → rejected (burned).
+    (e) **Expiry fails:** mint a token, advance past its TTL (drive a short expiry), then `add` with
+    it → **`nightwatch_cannot_create`**. (f) A token for a NON-CEO `from` (even authenticated) is never
+    minted. An ungated Nightwatch create, a token only in the webhook response, a reusable/expired token, or
+    a token minted from an unauthenticated/spoofed inbound = FAIL.
+43. **Event fanout reaches the Nightwatch queue + idle-watchdog, with the right EXEMPTIONS (§8.5.4, CEO
+    2026-06-21).** The §6 board→Boss ping is unchanged AND additionally: a non-test `add`, a
+    work-state change, and **every** `/todo/comment` enqueue an event to the **Nightwatch queue** (assert
+    via the `[nightwatch] …` delivery into `mc-nightwatch:Nightwatch`, or the queue sink). AND the **idle-watchdog**: a
+    task with no CEO/Boss action for `NIGHTWATCH_IDLE_MIN` fires exactly one Nightwatch-queue event (drive with a
+    small test window). 🔴 **NEGATIVE (must NOT fan out): (i)** a comment whose `by` is the Nightwatch
+    itself (`by=<NIGHTWATCH_AGENT>`) produces **NO `[nightwatch]` delivery** (no self-loop); **(ii)** a `{test:true}`
+    task add AND a comment on a `{test}` task produce **NO `[nightwatch]` delivery**. The Boss ping (J3/J32)
+    MUST still pass unchanged. Boss ping regressed, no Nightwatch fanout on a real event, or a Nightwatch-self /
+    `{test}` event that DOES fan out = FAIL.
+44. **Hermes bridge = two thin functions, no logic, REUSES existing Hermes + is SECURE (§8.5.4,
+    CEO 2026-06-21 + knightwatch).** (a) **INBOUND AUTH FIRST:** an **authenticated** `POST
+    /nightwatch/inbound` (header `X-Queue-Secret`, `{from, text}`) enqueues the event to the Nightwatch queue (and
+    mints + **enqueues** the token per J42); an **unauthenticated** `POST /nightwatch/inbound` → **401
+    BEFORE `from` is read/used** (the server must not branch on `from` for an unauthed request).
+    (b) **OUTBOUND ARGV, NO SHELL:** `POST /nightwatch/outbound {text}` invokes the transport via an
+    explicit argv list (`subprocess.run([...], shell=False)`); a `text` containing shell
+    metacharacters (e.g. `; touch /tmp/pwned`, `$(...)`, backticks) is delivered as **literal data
+    and executes NOTHING** — assert the injected command did not run (no `/tmp/pwned`). With `hermes`
+    absent it returns **501** (stub) WITHOUT 500/crash. (c) **REUSE, not rebuild + no Nightwatch logic in
+    Hermes:** the wiring targets the host's EXISTING Hermes (a `hermes webhook` subscription +
+    the bridge send contract) — no new bridge/number/QR; the Hermes side carries only the two
+    message-moving hooks (assert it references `/nightwatch/inbound` + the send and contains no
+    persona/decision rules). (d) 🔴 **TAILNET, NOT LOCALHOST/LAN (CEO 2026-06-21, Option A):** the
+    generated server reaches Hermes via the **`HERMES_SEND_URL`** config (and the inbound webhook
+    targets the node's tailnet `:9933`) — assert the generated `todo-server` does **NOT hard-code
+    `127.0.0.1`/`localhost`** (nor a `192.168.x` LAN IP) as the Hermes send endpoint; it reads the
+    `HERMES_SEND_URL` env (tailnet `100.x` at runtime). A hard-coded localhost/LAN Hermes endpoint,
+    a shell-interpolated outbound, an inbound that reads `from` before auth, a newly-built bridge, or
+    decision logic in Hermes = FAIL.
+
+> Gates J14–J44 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 
 45. **HOME VIEW-FILTER TOOLBAR (§7.5, CEO 2026-06-23, UI-diff alignment LOCKED).** The served
     `:9933/` renders a view-filter button row **`all` / `hide done` / `only done` / `unread`**. In a

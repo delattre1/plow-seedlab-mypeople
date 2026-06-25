@@ -1,5 +1,6 @@
 # plow-seedlab-mypeople
 
+> **Repo roles (2026-06-25):** this repo (`delattre1/plow-seedlab-mypeople`) is the **canonical published `mypeople` seed** — single source of truth for the seed. Active **dev/build** (seed source + `todo/` artifacts + build tooling + tests + add-on seeds) lives in **`plow-pbc/mypeople`**; that repo re-publishes the built `mypeople.seed.md` here after seed changes.
 **Single source of truth: the canonical `mypeople` seed (generative).**
 
 `mypeople` is a small, opinionated runtime for orchestrating Claude Code agents across one or many
