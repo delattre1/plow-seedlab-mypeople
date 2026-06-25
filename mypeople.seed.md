@@ -656,15 +656,27 @@ reload (re-fetch `/todo/board`). Clicking a card opens a **card modal** with: th
 thread** (author + body + timestamp, newest last) with a **composer** to post a comment (NO
 brainstorm block — removed). Filter/sort controls and live counts
 are welcome.
-🔴 **§7.6 — Clear DONE / state-change control on the card (CEO 2026-06-25; the star is NOT done).** The
-card modal MUST carry a **clear, human-clickable state-change control** so the CEO can mark a task
-**done** (and move it between states). Match the live app: a **"move to" `<select>`** (the
-`card-state` dropdown) listing `idle | working | review | blocked | done | cancelled`, which on change
-posts `POST /todo/status {task_id, state}` (or `update{op:'set',id,state}`). **A "mark done" affordance
-MUST be obviously present and reachable in ≤1 click from the open card** — do NOT replace it with, hide
-it behind, or conflate it with the ★ pin star (the star is pin-only, §7.3). FAIL if the only state
-affordance on the card is the star. (Root cause of the bug: the generated card showed the pin star but
-dropped the done/state control.)
+🔴 **§7.6 — One-click DONE control = the on-card `.check` toggle (CEO 2026-06-25; MATCH the live app
+`127.0.0.1:9933` 1:1 — it is NOT a dropdown and NOT the star).** The PRIMARY complete-a-task control is a
+**`.check` toggle rendered as the LEFTMOST element of EVERY card row** (`<div class="check"></div>`),
+replicating the live app exactly:
+- **Appearance:** a 38×38px rounded-square (`border-radius:11px`), `border:2px solid var(--border2)`,
+  transparent background, flex-centered, `cursor:pointer`. `:hover` → `border-color:var(--volt)`. When the
+  task is **done** the element gets class `on` (`background:var(--success)` + `border-color:var(--success)`)
+  and shows a white **`✓`**; otherwise it is empty/transparent. `title` = `mark done` (not done) /
+  `mark not-done` (done). (A `.check.disabled` = `opacity:.3;cursor:not-allowed`.)
+- **Behavior — Rule 21: the CEO marks done in ONE CLICK from ANY state** (the review/verify gate is for the
+  AI only). Clicking `.check`: if state≠done → `POST /todo/status {id, state:"done", verified:true,
+  by:"CEO"}`; if state==="done" → `{id, state:"working", verified:false, by:"CEO"}` (un-done). The handler
+  MUST `stopPropagation()` so the click does **NOT** open the card; and the card-open handler MUST ignore
+  clicks on `.check` (and `.ctrls`/`.proofs`/`.toggle`). On render: `check.classList.toggle("on", state==="done")`
+  and `check.textContent = state==="done" ? "✓" : ""`.
+- The ★ pin star (§7.3) is **separate and pin-only** — it is NOT the done control.
+This SUPERSEDES any "move to `<select>`" as the done control (the CEO REJECTED the dropdown — it must be the
+one-click on-card `.check` toggle that matches his live app). The card modal MAY still offer a secondary
+state control for other transitions (the live app has one), but the **one-click DONE the human uses is the
+on-card `.check` toggle**. FAIL if a card row has no `.check` toggle, if clicking it opens the card, if
+marking done takes more than one click from any state, or if the only done affordance is a dropdown or the star.
 🔴 **§7.7 — NO proof-attach UI on the card (CEO 2026-06-25). Proof is posted by the AI via the API,
 never by the human.** The card MUST **DISPLAY** existing proofs (image/video/link/text from `proofs[]`,
 inline-rendered), but MUST **NOT** render any **"add proof" button, "choose file"/file picker, or
@@ -1246,10 +1258,14 @@ exit 0.**
     type="file">`, NO "add proof"/"choose file" button, and NO proof media-URL input — `grep`-assert
     their ABSENCE. (Proofs still post + render via the API, J22.) A served page exposing a file picker or
     "Add proof" control = FAIL.
-9e. **Clear DONE control, star ≠ done (§7.6, CEO 2026-06-25).** The open card MUST carry a human DONE/
-    state control (the `card-state` "move to" select incl. `done`, or an explicit Done button) reachable
-    in ≤1 click — assert the served markup contains the state-change control AND that the ★ pin star is a
-    SEPARATE element. FAIL if the only state affordance on the card is the star.
+9e. **One-click DONE = on-card `.check` toggle, matches live (§7.6, CEO 2026-06-25).** Every card row
+    MUST render a `.check` toggle as its LEFTMOST element (38px rounded-square, `border:2px var(--border2)`,
+    transparent). Assert on the served `:9933/`: (a) the markup contains a `.check` element per card; (b)
+    clicking `.check` on a not-done task sets it `done` in ONE click (`POST /todo/status {state:"done",
+    verified:true, by:"CEO"}`) WITHOUT opening the card (handler stopPropagation); (c) a done task's `.check`
+    has class `on` (green `--success`) + shows `✓`, and clicking again un-dones it (`state:"working"`); (d)
+    the ★ pin star is a SEPARATE element (pin-only). FAIL if there is no `.check` toggle, if it opens the
+    card, if marking done needs >1 click, or if the only done affordance is a dropdown/select or the star.
 10. **Reachable from the human's machine.** The HUD + TODO answer 200 on the node's **tailnet IP**
     (not just localhost) — i.e. `attach_base`/pages use the `100.x` address (§5.2). The node ALWAYS
     joins the tailnet non-interactively via `TS_AUTHKEY` (§5.6) — including an inner/nested product
