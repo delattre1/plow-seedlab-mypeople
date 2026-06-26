@@ -883,6 +883,17 @@ This is no longer "preference #1, best" — it is THE required implementation:**
   - `fetch()` stays same-origin RELATIVE (already correct). **The inner HUD keeps binding its own
     `:9900` for the supervisor/Verify**, but it is reached by the USER only through the todo-server
     pass-through — the browser never needs `:9900` directly.
+  - 🔴 **SYMMETRIC FRONT DOORS — the HUD port must NOT strand a user (CEO 2026-06-26: opening the HUD
+    on its own port `:9900`/`HUD_PORT` gave a dead TODO↗ link, because `:9900/` 404s and the relative
+    `href="/"` resolved to the HUD port's empty root).** Because the cross-nav links are relative
+    (`/` and `/dashboard`), EVERY port that serves a page MUST serve BOTH routes. The todo-server
+    already proxies the HUD routes; **symmetrically, the queue-server (HUD process) MUST reverse-proxy
+    the TODO routes — `GET /`, `/todos`, `/wall`, `/todo/*` — to `127.0.0.1:<TODO_PORT>`** (read
+    `TODO_PORT` from config; stream the response back unchanged, same discipline as the todo-server's
+    HUD pass-through). Result: whichever port the user lands on (HUD_PORT or TODO_PORT), `/` serves the
+    TODO board and `/dashboard` serves the HUD, so the relative cross-nav works from EITHER origin and
+    no port leaves a 404/dead link. (Still no absolute inner-port URLs in any served byte — these are
+    server-side proxies, not browser redirects.)
   **Forbidden in ANY served byte (HARD):** `http://127.0.0.1:<port>`, `http://localhost:<port>`,
   `location.hostname+':9900'`/`+':9933'`, or any absolute `:9900`/`:9933` literal inside a cross-nav /
   attach / redirect target. The ONLY acceptable cross-nav hrefs are the relative paths `/dashboard`
@@ -895,6 +906,13 @@ table) — proving the pass-through works end-to-end behind a port shift; (c) **
 bytes of `/` and `/dashboard` for any `127.0.0.1`/`localhost`/`:9900`/`:9933` literal in an href/src/
 redirect → ZERO**. Any hardcoded inner-port nav literal, or a `/dashboard` that 404s through the
 shifted origin, = FAIL.
+🔴 **J6b (SYMMETRIC FRONT DOORS, CEO 2026-06-26) — the cross-nav must work from EITHER port.** On
+**BOTH** the HUD port (`HUD_PORT`) AND the TODO port (`TODO_PORT`), assert: (a) `GET /` returns **200
+and the TODO board** ("Priorities"); (b) `GET /dashboard` returns **200 and the HUD** ("MyPeople -
+HUD"); (c) the served HUD page's TODO↗ href is `/` and the TODO page's HUD↗ href is `/dashboard`
+(relative). So a user who opens the HUD on its own port and clicks TODO↗ reaches the board, not a
+404. FAIL if `HUD_PORT/` 404s (or doesn't serve the board) — that is the dead-link defect this gate
+exists to prevent.
 
 **ITEM 3 — click a commenter's agent name → opens its terminal.** In a card's comment thread,
 when a comment's author (`by`) is an **attachable agent_id** (`…/<sess>:<tab>` form), render the
