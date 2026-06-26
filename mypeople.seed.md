@@ -127,9 +127,17 @@ live terminal.
   generatively — a small exporter + a restore CLI, NOT pasted source):
   1. **A decoupled, READ-ONLY exporter** (its own process, NEVER inside `save()`) watches the live
      `board.v2.json` and, on every change, commits a canonical (sorted-key, pretty) snapshot into a
-     **SEPARATE git repo in a SEPARATE directory OUTSIDE any working tree the server runs from** —
-     `~/.mypeople/board-backup/<HOST_ID>/` (its own `.git`, keyed per `HOST_ID`+`$INSTALL_DIR` per the
-     isolation rule above). Every git command is pinned to that repo (`git -C <EXPORT_REPO>`). The
+     **SEPARATE git repo in a SEPARATE directory OUTSIDE any working tree the server runs from**.
+     🔴 **The repo path MUST be PER-INSTANCE, not per-host (boardgit 2026-06-26: keying by `HOST_ID`
+     alone made two instances on the SAME host — e.g. `:9933` + a new `:9963` — collide into ONE backup
+     repo, whose history then flip-flops between the two different boards after each edit).** The path
+     MUST include an **instance discriminator** derived from THIS install, so every instance backs up to
+     its OWN repo: `~/.mypeople/board-backup/<HOST_ID>-<INSTANCE>/` where `<INSTANCE>` is a stable short
+     token unique to this install — e.g. the **`TODO_PORT`** and/or a short hash of the absolute
+     **`$INSTALL_DIR`** (`sha1($INSTALL_DIR)[:8]`). Two installs that differ in `$INSTALL_DIR` OR port
+     MUST resolve to DIFFERENT repo paths; never collapse to a bare `<HOST_ID>/`. (Overridable via
+     `EXPORT_REPO` in `queue.env`.) Its own `.git`; every git command pinned to that repo
+     (`git -C <EXPORT_REPO>`). FAIL if two co-hosted instances share a backup repo. The
      exporter **only reads** the live board and **only writes** into the export repo — it has **no code
      path that writes `board.v2.json`** and **never runs `git checkout/stash/reset` in the live tree**.
      This is what makes the backup mechanism *structurally incapable* of repeating the 2026-06-26 wipe.
@@ -1520,7 +1528,11 @@ exit 0.**
     count (never promoted); (4) **restore-to-CURRENT** — `board-restore` (HEAD) brings the live board
     back to the full count INCLUDING the change, after writing a `*.bak.prerestore.*` first. FAIL if the
     export path writes the live board, if a wipe is promoted to HEAD, or if restore does not recover the
-    current state. (F-gitexport)
+    current state. (F-gitexport) **(5) PER-INSTANCE repo (boardgit 2026-06-26)** — two installs that
+    differ in `$INSTALL_DIR`/port MUST resolve to DIFFERENT `EXPORT_REPO` paths (the path carries an
+    instance discriminator, not bare `<HOST_ID>`); assert two configs with the same `HOST_ID` but
+    different `$INSTALL_DIR` produce distinct repo dirs. FAIL if two co-hosted instances would share one
+    backup repo (history flip-flop).
 26. **REMOVED (CEO 2026-06-18) — no machines grid means no grid-cleanliness gate.** With §7.1/J11
     gone, the generated HUD shows no machines grid, so there is no grid to pollute with test
     fixtures. (The queue-server may still expire stale `/clients` entries as good hygiene, but it is
