@@ -86,6 +86,14 @@ live terminal.
   timestamp, session_id, boss_id, backend, state}` — vocab **canonical: `working`, NOT `busy`**; written
   by the §4 lifecycle hooks. The HUD/`/agents` merges **both `summary` AND `status`** in (so the HUD can
   render the per-agent idle/working/blocked **badge** — §7.5), not only the alive/dead `state`.
+- 🔴 **SPAWN/REVIVE COMMAND VISIBILITY (CEO 2026-06-26 — the HUD MUST show HOW each engineer was
+  created).** `mp spawn` already records the exact launch command per agent in the durable roster
+  (`run/roster.json` → `spawn_cmd`, see Durability above). The server MUST **join `spawn_cmd` onto every
+  `/agents` row** (look it up by `agent_id` in the roster store — same join discipline as `attach_url`)
+  and ALSO emit a derived **`revive_cmd` = `mp revive <agent_id>`** per row. The HUD then DISPLAYS both
+  per engineer (§7 agents table) so the CEO can see — and copy — the precise command used to spawn each
+  engineer and the command to revive it. A `/agents` row missing `spawn_cmd` (when the roster has one)
+  or a HUD that doesn't surface it = FAIL (the CEO read its absence as "the HUD wasn't built right").
 - **TODO board store:** `todos/board.v2.json` = `{version, order:[taskId…], pinSeq:<int>,
   tasks:{taskId:{id, text, state, assignee, pinned:<bool>, pinRank:<int|null>,
   comments:[{id,by,kind,body,ts}], …}}}`. `pinned`/`pinRank` (§7.3 PINNING) persist here like every
@@ -149,7 +157,9 @@ requires header `X-Queue-Secret: <QUEUE_SECRET>`; JSON bodies):
   the hydration/group label (e.g. `mypeople`, `airbnb`); `node_type` ∈ {`one-shot-eng`,
   `long-lived-eng`, `system-agent`, `in-substrate-install-eng`}; `recording_url` = the node's
   seedrec recording link (may be empty).
-- `GET /agents` → array of agent records (the HUD's source of truth for who's alive).
+- `GET /agents` → array of agent records (the HUD's source of truth for who's alive). **Each row MUST
+  carry `spawn_cmd`** (joined from the roster store by `agent_id`, §3) **and `revive_cmd`**
+  (`"mp revive <agent_id>"`) so the HUD can show how each engineer was spawned + how to revive it.
 - `POST /agents/register` `{agent_id, backend, state, boss_id, is_master}`; `POST
   /agents/unregister` `{agent_id}`.
 - `POST /heartbeat` `{hostname, attach_base, substrate_ready, purpose, node_type,
@@ -666,11 +676,19 @@ labels, code, agent-ids, timestamps — uppercase +0.06em). Volt buttons: Volt b
 casing/wordmark; the browser-tab `<title>` tag MUST ALSO be exactly `MyPeople - HUD`, never lowercase
 `mypeople — HUD`); a DM-Mono meta line
 (refreshed + agent count); the **agents table** (AGENT_ID, STATE, BACKEND, BOSS, SUMMARY,
-ATTACH) where `alive` renders in Volt; an **ATTACH** link per agent that opens the live pane —
+**SPAWN CMD**, ATTACH) where `alive` renders in Volt; an **ATTACH** link per agent that opens the live pane —
 🔴 built per the §5.2 CLIENT-HOST rule: host = `window.location.hostname` for a same-node agent (so
 it works from localhost AND over the tailnet), the agent's tailnet `attach_base` host for a
 cross-node agent — **never a hardcoded `127.0.0.1`/`localhost`**; a **"Retired engineers"** table
 with a per-engineer **Revive** (Volt) button. Polls `/agents`+`/roster` every ~3s.
+🔴 **SPAWN/REVIVE COMMAND CELL (CEO 2026-06-26, §3).** Every agent row MUST show, in the **SPAWN CMD**
+column, the exact command used to create that engineer — the row's **`spawn_cmd`** (from `/agents`) —
+rendered in **DM Mono** as **copyable** text (e.g. a `<code>` block with a one-click "copy" affordance;
+long commands may be truncated/scrollable but the FULL command must be obtainable, e.g. via `title=`/expand
+or copy). Directly beneath/beside it, show the **`revive_cmd`** (`mp revive <agent_id>`) the same way. The
+"Retired engineers" table's rows ALSO show their `spawn_cmd` + `revive_cmd` (it is how the CEO re-creates a
+retired one) next to the Revive button. FAIL if a live agent row shows no spawn command when `/agents`
+carries one — the CEO must be able to SEE how every engineer was spawned, straight from the HUD.
 
 **§7.1 — REMOVED (CEO 2026-06-18): the generated HUD has NO "MyPeople Hydration" / machines-grid
 section.** The product HUD must NOT render a per-`purpose`/hydration grid of machines (the CEO isn't
@@ -1458,6 +1476,13 @@ exit 0.**
     retired flag (agent re-eligible), reflected on the next `/roster`. (F21) **Test it WITHOUT
     leaving a phantom:** any agent/host you register to exercise retire/revive MUST be removed before
     the gate returns — no `retiredtest`/`ghosthost`-style residue on the live `/roster` or grid.
+25a. 🔴 **Spawn/revive command visible in the HUD (CEO 2026-06-26, §3/§7).** Spawn a real engineer,
+    then assert: (1) its `GET /agents` row carries a non-empty **`spawn_cmd`** (matching the roster's
+    `spawn_cmd` for that `agent_id`) AND **`revive_cmd` == `mp revive <agent_id>`**; (2) the served
+    `/dashboard` HTML renders that agent's spawn command in the agents table (the SPAWN CMD column —
+    grep the page for the agent's `spawn_cmd` text, or its copy/expand affordance carrying it) AND its
+    `mp revive <agent_id>`. FAIL if `/agents` omits `spawn_cmd` while the roster has one, or the HUD
+    page shows no spawn command for a live agent. (F-spawncmd)
 25b. 🔴 **Runtime data isolation + defensive board backup (§3, 2026-06-26 incident).** Assert:
     (1) the served board path is **`$INSTALL_DIR/todos/board.v2.json`** (under this install's own
     `$INSTALL_DIR`), and `$INSTALL_DIR` is NOT inside a git working tree — `git -C "$INSTALL_DIR"
