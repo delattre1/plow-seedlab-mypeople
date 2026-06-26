@@ -1775,6 +1775,35 @@ exit 0.**
     **on its FIRST turn** by posting a `/todo/comment` to that card under its own agent_id (a direct
     answer) OR spawning an engineer — with NO turn spent discovering how to send. A Boss that asks how
     to use the queue, or whose first turn produces no board action, = FAIL.
+49. 🔴 **EXTERNAL-BROWSER USER-JOURNEY SUITE — MANDATORY, NON-SKIPPABLE (CEO 2026-06-26: hydrates
+    keep shipping bugs because we tested "process up + HTTP 200 + bytes", not the journeys the human
+    actually does in his browser).** This gate drives a **real browser** (headless Chromium via
+    Playwright/Puppeteer) through the ACTUAL user journeys and asserts the rendered DOM + real
+    navigation — NOT href strings. **It is NOT optional:** the Verify harness MUST self-install the
+    browser (e.g. `npx playwright install chromium`); if it cannot, the gate **FAILS** — it may NEVER
+    be skipped or downgraded to a curl/grep substitute and still report green (that skippability is the
+    exact hole that let the HUD→TODO 404 and the missing SPAWN CMD column ship). Run **every** journey on
+    **BOTH** the HUD port AND the TODO port (per J6b), with **zero console errors / failed network
+    requests** throughout (a console error or 4xx/5xx on any step = FAIL):
+    - **a. Open TODO board:** load `/` → the board renders (the "Priorities" H1, the addbar, the chips).
+    - **b. Add a card:** type in the addbar + press Enter → the new card APPEARS in the list (assert the
+      DOM node, not just the API).
+    - **c. One-click DONE:** click the card's `.check` → it flips to done (struck/green ✓) and the
+      board state persists on reload; click again → un-done. (No dropdown needed; the ★ star is pin-only.)
+    - **d. Card modal + comment:** click the card → modal opens; post a comment → it appears in the
+      thread live (no manual refresh); Esc/backdrop closes it.
+    - **e. Cross-nav by REAL CLICK:** on the board, **click `HUD ↗`** → the browser lands on the HUD
+      (`MyPeople - HUD`, agents table visible); on the HUD, **click `TODO ↗`** → lands on the board
+      (`Priorities`). Assert the resulting page content after the click — do this **from BOTH ports**
+      (open the HUD on its own port too and click TODO↗ → must reach the board, not a 404).
+    - **f. SPAWN CMD visible:** spawn a real engineer; the HUD agents table shows that engineer's row
+      with its **spawn command** (the SPAWN CMD cell, non-empty) AND its `mp revive <agent_id>`.
+    - **g. Proof renders:** a card with an image/video proof (posted via API) shows the real
+      `<img>`/`<video>` chip in the modal (no broken/text chip); there is NO proof-attach control in the UI.
+    Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
+    element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
+    THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
+    smoke-subset of this). (F-browser-journeys)
 > Gates J14–J38 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
