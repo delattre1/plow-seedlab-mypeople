@@ -90,6 +90,29 @@ live terminal.
   tasks:{taskId:{id, text, state, assignee, pinned:<bool>, pinRank:<int|null>,
   comments:[{id,by,kind,body,ts}], …}}}`. `pinned`/`pinRank` (§7.3 PINNING) persist here like every
   other field; `pinSeq` is the board-level monotonic counter that hands out pin ranks.
+- 🔴 **RUNTIME DATA ISOLATION (HARD — 2026-06-26 incident: a daily-driver board was WIPED).**
+  ALL mutable runtime state — `todos/board.v2.json`, `run/` (roster, pidfiles, agent cwds),
+  `status/` — lives **under `$INSTALL_DIR`** and is **per-install + per-`HOST_ID`**. Two consequences
+  the install MUST guarantee:
+  1. **No data-dir collision between instances.** Each instance binds its OWN `$INSTALL_DIR`,
+     `HOST_ID`, ports, and `QUEUE_SECRET`; a second/parallel instance (e.g. a v2 / fresh hydrate)
+     MUST use a DIFFERENT `$INSTALL_DIR` (different `$HOME`) so its `todos/board.v2.json` path can
+     **never** be the same file as another running instance's. A hydrate writes only under its own
+     `$INSTALL_DIR` — it is structurally incapable of writing another install's board.
+  2. **Runtime data is NEVER inside a git-tracked tree.** The live board is mutated continuously; if
+     `$INSTALL_DIR` (or the dir holding `todos/board.v2.json`) is a git working tree, a `git
+     stash`/`checkout`/`reset` there will revert the live board to a stale commit and **wipe it**
+     (exact root cause of the 2026-06-26 incident — the dev instance ran from a git checkout with the
+     board git-TRACKED). RULE: keep `$INSTALL_DIR` out of any repo; if you must develop by running
+     from a checkout, **gitignore the entire runtime data dir** (`todos/`, `run/`, `status/`,
+     `board.v2.json*`) and `git rm --cached` it so no git op can ever touch the live board.
+- 🔴 **DEFENSIVE BOARD BACKUP (defense-in-depth so a wipe is always recoverable).** `save(board)`
+  MUST be **atomic** (write `board.v2.json.tmp` then `os.replace` — never a partial truncate) AND,
+  before replacing, **roll a timestamped backup** `todos/board.v2.json.bak.<epoch>` keeping the **last
+  ~20** (prune older). Additionally, **refuse a catastrophic shrink**: if the about-to-be-saved board
+  has **&lt; 50% of the task count** of the on-disk board AND the on-disk board had &gt; 5 tasks, do
+  NOT overwrite — write the new state to `board.v2.json.SUSPECT.<epoch>` and log loudly instead, so a
+  bad reload can never silently clobber a full board. (Verify J-gate §below.)
 
 ---
 
@@ -490,8 +513,11 @@ benign 404. Both servers (`:9933` + `:9900`) MUST serve `/favicon.ico` with a **
 The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`, and a JSON API
 (all gated by `X-Queue-Secret` except the page + `/health`):
 - `GET /todo/board` → the board JSON. `POST /todo/update` ops: **`add` `{text}`** (creates a task
-  in **`idle`** — folded 2026-06-18, was `needs_brainstorm`; a new task is born **idle** and sits
-  there, directly pickup-able, until an engineer moves it to `working` — NO brainstorm gate),
+  in **`needs_brainstorm`** — the canonical boss-doctrine initial state (Boss 2026-06-26: the
+  2026-06-18 fold to `idle` was a divergence from the boss-doctrine state model and is **REVERTED**;
+  `idle` is NOT a task state). A new task is born **`needs_brainstorm`** and sits there, directly
+  pickup-able, until an engineer moves it to `working` — there is no blocking brainstorm gate (the
+  state is just the initial label, NOT a banner/gate; the gate API stays cut, below),
   prepends to `order`, returns `{ok,id}`), **`del {id}`**, **`set {id,…}`**.
   **FIELD NAMES (the contract — your generated page and server MUST agree on these exact names):**
   the `set` fields are **`text`, `doneCondition`, `workToDone`, `state`, `done`, `assignee`** — note
@@ -547,12 +573,16 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   via the API, not a UI control).
   **REMOVED (CEO 2026-06-18 — the brainstorm
   gate is cut entirely): NO `/todo/brainstorm`, NO `/todo/answer`, no `brainstorm` task field, no
-  "needs-brainstorm" banner/blocking.** A task goes `idle → working` with no gate.
+  "needs-brainstorm" banner/blocking.** A task goes `needs_brainstorm → working` with no gate (the
+  initial state is NAMED `needs_brainstorm` per boss-doctrine — Boss 2026-06-26 — but there is no
+  blocking gate/banner; it is just the born-state label).
 
 **You GENERATE both the page and the server** (truly generative — no pinned/pasted UI). They must
 agree on: the routes above, the `set` field names (`doneCondition`/`state` — see above), the `state`
-enum **`idle|working|review|done`** (main flow) **+ `blocked|cancelled`** (side-exits) — **no
-`needs_brainstorm`**, the board shape (per-task `text`,
+enum **`needs_brainstorm|working|review|done`** (main flow) **+ `blocked|cancelled`** (side-exits) —
+**no `idle`** (Boss 2026-06-26: REVERTED to the canonical boss-doctrine model — `needs_brainstorm` is
+the initial state, `idle` is NOT a task state; the `review` state DISPLAYS as **"review (CEO)"**), the
+board shape (per-task `text`,
 `state`, `assignee`, `doneCondition`, `workToDone`, `comments[]`, `proofs[]`, `unread`,
 `verified`, `pingsToBoss`) — **no `brainstorm` field**, and the board→Boss ping. **The page makes same-origin calls and carries
 NO secret — auth is server-side (§5.12): serving the page mints an httpOnly session cookie the
@@ -695,8 +725,8 @@ sketch).** The VISIBLE Instrument-Serif H1 on the board is exactly **"Priorities
 match live `:9933` exactly; the logo + the meta line carry the "MyPeople" identity, so do NOT render a
 "MyPeople - Priorities" heading or eyebrow line above/beside the H1). The browser-TAB `<title>` tag is
 `MyPeople - Priorities` (tab only — NOT shown on the board). Then: an add-a-task input (Enter to add); the board as a list of
-task **cards**, each showing the title (inline-editable), a **state badge** (`idle|working|review|
-done|blocked|cancelled`, color-coded), the **assignee** chip, an **unread** badge, a `↑boss`
+task **cards**, each showing the title (inline-editable), a **state badge** (`needs_brainstorm|working|review|
+done|blocked|cancelled`, color-coded; `review` DISPLAYS as **"review (CEO)"**), the **assignee** chip, an **unread** badge, a `↑boss`
 ping count, and a **★ pin star** (§7.3 — the star is **PIN ONLY; it is NOT the done control** — see
 §7.6 for the required DONE control). Clicking the star pins/unpins via `update{op:'pin'|'unpin',
 id}`; **pinned cards render in a visually-distinct group ("Pinned"/★) at the TOP of the board, in
@@ -845,7 +875,7 @@ gaps the CEO called out vs `127.0.0.1:9933`). All four are REQUIRED, gated by J4
 4. **Relative "X ago" timestamps on every message + state event.** Render times as a compact relative
    string from the event `ts`: `<60s → "Ns ago"`, `<60m → "Nm ago"`, `<24h → "Nh ago"`, `<7d →
    "Nd ago"`, else a locale date. Show it in each comment bubble's header AND on each state-transition
-   marker (e.g. `⌁ idle → working · 4m ago`). It updates live with the §7.2 poll (a "2m ago" becomes
+   marker (e.g. `⌁ needs_brainstorm → working · 4m ago`). It updates live with the §7.2 poll (a "2m ago" becomes
    "3m ago" without a reload).
 Reference for these details (quality, NOT pixel-copy): the live board at `127.0.0.1:9933`.
 
@@ -895,8 +925,8 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
 - **The end-to-end comms loop MUST close first-time (CEO 2026-06-18 — gated J32).** On a `[todo]`
   ping (create OR comment, §6), the Boss **MUST act AUTONOMOUSLY, without further human prompting**:
   (a) reads the task/comment, (b) **immediately `mp spawn`s an engineer** and assigns the task to it
-  (do NOT leave the task sitting in `idle` waiting to be told — the ping IS the trigger; the engineer
-  picks it up, moving `idle → working`),
+  (do NOT leave the task sitting in `needs_brainstorm` waiting to be told — the ping IS the trigger; the engineer
+  picks it up, moving `needs_brainstorm → working`),
   (c) the engineer does the work and **posts results back into the TODO** (`POST /todo/comment` as
   its agent_id) — NOT into raw tmux; (d) when the CEO **comments** a follow-up, the comment-ping
   reaches the Boss and it **runs the next round**. **Root-cause of the first-try fail (folded
@@ -1360,16 +1390,19 @@ exit 0.**
 15. **Delete task.** `update{op:del,id}` removes the task from `/todo/board` (tasks + order). (F2)
 16. **Inline edit.** `update{op:set,id,text|doneCondition|assignee}` patches that field (note the
     REAL names per §6); read back on the board. (F3)
-17. **State enum (idle model — folded 2026-06-18).** A newly-added task is born **`idle`**. Setting
-    each of `idle|working|review|done|blocked|cancelled` via `set{state}` (field **`state`**, NOT
-    `status`)/`/todo/status` persists + reads back; **`needs_brainstorm` is NOT a valid state** (a
-    `set{state:"needs_brainstorm"}` is rejected); any invalid value is rejected (400). (F4)
+17. **State enum (boss-doctrine model — REVERTED 2026-06-26 per Boss; was the 2026-06-18 idle model).**
+    A newly-added task is born **`needs_brainstorm`**. Setting each of
+    `needs_brainstorm|working|review|done|blocked|cancelled` via `set{state}` (field **`state`**, NOT
+    `status`)/`/todo/status` persists + reads back; **`idle` is NOT a valid state** (a
+    `set{state:"idle"}` is rejected); any invalid value is rejected (400). The `review` state DISPLAYS
+    as **"review (CEO)"**. (F4)
 18. **Done toggle.** `set{done:true}`/`set{workToDone:true}` moves the task to `state=done`; the
     board reflects it. (F5)
-19. **idle → working with NO gate (folded 2026-06-18, replaces brainstorm gate).** A fresh task is
-    `idle`; `set{state:"working"}` (an engineer picking it up) succeeds with **no brainstorm/answer
-    gate** in the way. *Assert:* a just-added task has `state=idle`; it can go straight to `working`.
-    (F6)
+19. **needs_brainstorm → working with NO gate (boss-doctrine model, REVERTED 2026-06-26; the
+    born-state is named `needs_brainstorm` but there is NO blocking gate).** A fresh task is
+    `needs_brainstorm`; `set{state:"working"}` (an engineer picking it up) succeeds with **no
+    brainstorm/answer gate** in the way. *Assert:* a just-added task has `state=needs_brainstorm`; it
+    can go straight to `working`. (F6)
 20. **Brainstorm gate is GONE (folded 2026-06-18).** Assert there is **no `/todo/brainstorm` and no
     `/todo/answer` route** (404/unsupported), **no `brainstorm` field** on tasks, and **no
     "needs-brainstorm" banner** in the UI. Any of these present = FAIL (the gate was cut). (F7)
@@ -1395,6 +1428,15 @@ exit 0.**
     retired flag (agent re-eligible), reflected on the next `/roster`. (F21) **Test it WITHOUT
     leaving a phantom:** any agent/host you register to exercise retire/revive MUST be removed before
     the gate returns — no `retiredtest`/`ghosthost`-style residue on the live `/roster` or grid.
+25b. 🔴 **Runtime data isolation + defensive board backup (§3, 2026-06-26 incident).** Assert:
+    (1) the served board path is **`$INSTALL_DIR/todos/board.v2.json`** (under this install's own
+    `$INSTALL_DIR`), and `$INSTALL_DIR` is NOT inside a git working tree — `git -C "$INSTALL_DIR"
+    rev-parse` fails, OR `todos/board.v2.json` is git-ignored there. (2) `save()` is atomic and rolls
+    a timestamped `todos/board.v2.json.bak.<epoch>` (after ≥2 mutations there is ≥1 `.bak.*`; count
+    capped ~20). (3) **catastrophic-shrink guard:** with a multi-task board on disk, a forced reload
+    that would drop &gt;50% of tasks does NOT overwrite `board.v2.json` (it writes `*.SUSPECT.*`
+    instead). FAIL if the board path is shared/ git-tracked, no backups roll, or a >50% shrink
+    silently overwrites the live board. (F-isolation)
 26. **REMOVED (CEO 2026-06-18) — no machines grid means no grid-cleanliness gate.** With §7.1/J11
     gone, the generated HUD shows no machines grid, so there is no grid to pollute with test
     fixtures. (The queue-server may still expire stale `/clients` entries as good hygiene, but it is
@@ -1746,12 +1788,12 @@ that passes every gate is correct, per Decision B.)
 
 | # | Feature (the generated UI must do this) | Contract | Gate |
 |---|---|---|---|
-| F1 | add task (Enter) | `update{op:add,text}` → task born **`idle`**, prepended to `order` | J3 |
+| F1 | add task (Enter) | `update{op:add,text}` → task born **`needs_brainstorm`**, prepended to `order` | J3 |
 | F2 | delete task | `update{op:del,id}` removes from tasks+order | J15 |
 | F3 | edit text / done-condition / assignee inline | `update{op:set,id,text\|doneCondition\|assignee}` patches the field (REAL names, §6) | J16 |
-| F4 | state change | `update{op:set,id,state}` (field **`state`**) or `/todo/status`; enum `idle\|working\|review\|done` + `blocked\|cancelled` (NO `needs_brainstorm`) | J17 |
+| F4 | state change | `update{op:set,id,state}` (field **`state`**) or `/todo/status`; enum `needs_brainstorm\|working\|review\|done` + `blocked\|cancelled` (NO `idle`; `review` displays "review (CEO)") | J17 |
 | F5 | done checkbox / work-to-done toggle | `set{done}`/`set{workToDone}` flips `state`→`done`, renders strikethrough | J18 |
-| F6 | **idle → working, NO gate** (folded 2026-06-18) | new task is `idle`; an engineer `set{state:working}` with no brainstorm/answer gate | J19 |
+| F6 | **needs_brainstorm → working, NO gate** (boss-doctrine, REVERTED 2026-06-26) | new task is `needs_brainstorm`; an engineer `set{state:working}` with no brainstorm/answer gate | J19 |
 | ~~F7~~ | ~~brainstorm/answer gate~~ **REMOVED (CEO 2026-06-18)** | no `/todo/brainstorm`, no `/todo/answer`, no `brainstorm` field, no needs-brainstorm banner | J20 (negative) |
 | F8 | comment thread (card modal) | `/todo/comment{task_id,by,body}` appends to `comments[]`, `by`=agent_id\|CEO | J5 |
 | F9 | unread badge | **server-side rule (folded 2026-06-18 — was underspecified → first impl left `unread` null):** each task has an integer `unread` (default **0**); the server **increments it on every `/todo/comment` whose `by` is NOT the CEO/reader**, and `/todo/board` returns it. UI reads localStorage READ_KEY for the read-state. | J21 |
