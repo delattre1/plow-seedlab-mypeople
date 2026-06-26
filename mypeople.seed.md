@@ -113,6 +113,29 @@ live terminal.
   has **&lt; 50% of the task count** of the on-disk board AND the on-disk board had &gt; 5 tasks, do
   NOT overwrite — write the new state to `board.v2.json.SUSPECT.<epoch>` and log loudly instead, so a
   bad reload can never silently clobber a full board. (Verify J-gate §below.)
+- 🔴 **GIT-TRACKED BOARD EXPORT (separate-tree history + restore — card 2bf4e6c76a3a).** The rolling
+  `.bak.*` layer above is same-dir/same-disk defense-in-depth; this is the **versioned history** layer
+  that survives a full data-dir loss and recovers the board to **up-to-date**. Contract (build it
+  generatively — a small exporter + a restore CLI, NOT pasted source):
+  1. **A decoupled, READ-ONLY exporter** (its own process, NEVER inside `save()`) watches the live
+     `board.v2.json` and, on every change, commits a canonical (sorted-key, pretty) snapshot into a
+     **SEPARATE git repo in a SEPARATE directory OUTSIDE any working tree the server runs from** —
+     `~/.mypeople/board-backup/<HOST_ID>/` (its own `.git`, keyed per `HOST_ID`+`$INSTALL_DIR` per the
+     isolation rule above). Every git command is pinned to that repo (`git -C <EXPORT_REPO>`). The
+     exporter **only reads** the live board and **only writes** into the export repo — it has **no code
+     path that writes `board.v2.json`** and **never runs `git checkout/stash/reset` in the live tree**.
+     This is what makes the backup mechanism *structurally incapable* of repeating the 2026-06-26 wipe.
+  2. **Wipe is auto-detected, not silently promoted:** the exporter carries the same &lt;50%-shrink
+     guard — a snapshot with &lt;50% of the last-good HEAD task count (and HEAD &gt; 5) is committed to a
+     **quarantined `board.v2.json.SUSPECT.<epoch>` file, leaving `HEAD:board.v2.json` at the last good
+     full board**, and pings the Boss. So a wipe can never become the new baseline.
+  3. **`board-restore` is the ONLY writer of the live board on the recovery path** — manual, never
+     automatic. It reads a snapshot via `git -C <EXPORT_REPO> show <ref>:board.v2.json` (default HEAD =
+     current), **refuses an empty/unparseable snapshot**, **snapshots the current live board to
+     `*.bak.prerestore.<epoch>` FIRST** (reversible), then writes the live board **atomically** (`.tmp`
+     + `os.replace`, so the running server never reads a torn file). It performs **no git op in the
+     live tree.** Restoring HEAD brings the board back to its last committed (= up-to-date) state.
+  (Verify J-gate 25c.)
 
 ---
 
@@ -222,6 +245,13 @@ hook stdout is injected into the agent's context. Only the Stop hook notifies th
 message is flushed to the transcript → empty summary. The hook must **retry reading the transcript
 (~4×/0.5s)** and fall back to locating it by `session_id` under `~/.claude/projects` before giving
 up — never emit an empty summary on the first miss.
+**Status-file write MUST be atomic with a UNIQUE temp (folded 2026-06-26, real bug from a fresh
+hydrate):** multiple lifecycle hooks for the SAME agent can fire concurrently (e.g. `Stop` while a
+`UserPromptSubmit` is mid-write); if they share one temp path (`<file>.tmp`) they interleave and
+**corrupt the status JSON**. Each status write MUST go to a **process/PID-unique** temp
+(`<file>.<pid>.<epoch>.tmp`) then `os.replace` onto the final path (atomic rename), so concurrent
+hook writes never clobber each other or leave a half-written file. (Same atomic-rename discipline as
+the board store, §3.)
 
 ---
 
@@ -1437,6 +1467,17 @@ exit 0.**
     that would drop &gt;50% of tasks does NOT overwrite `board.v2.json` (it writes `*.SUSPECT.*`
     instead). FAIL if the board path is shared/ git-tracked, no backups roll, or a >50% shrink
     silently overwrites the live board. (F-isolation)
+25c. 🔴 **Git-tracked board export + restore (§3, card 2bf4e6c76a3a).** Drive the whole recovery loop
+    against a sandbox board+export-repo (same exporter/restore code, env-pointed so the live board is
+    never risked) and assert: (1) **change→commit** — a board change lands a NEW commit in the export
+    repo whose `HEAD:board.v2.json` contains the change; (2) **read-only** — the exporter does NOT write
+    the live board (sha256 of the board file is unchanged across an export run) and the export repo is a
+    SEPARATE dir outside any server working tree; (3) **wipe auto-quarantined** — wiping the board to
+    &lt;50% makes the exporter write a `*.SUSPECT.*` and KEEP `HEAD:board.v2.json` at the last good full
+    count (never promoted); (4) **restore-to-CURRENT** — `board-restore` (HEAD) brings the live board
+    back to the full count INCLUDING the change, after writing a `*.bak.prerestore.*` first. FAIL if the
+    export path writes the live board, if a wipe is promoted to HEAD, or if restore does not recover the
+    current state. (F-gitexport)
 26. **REMOVED (CEO 2026-06-18) — no machines grid means no grid-cleanliness gate.** With §7.1/J11
     gone, the generated HUD shows no machines grid, so there is no grid to pollute with test
     fixtures. (The queue-server may still expire stale `/clients` entries as good hygiene, but it is
