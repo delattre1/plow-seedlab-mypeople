@@ -1805,7 +1805,15 @@ exit 0.**
     be skipped or downgraded to a curl/grep substitute and still report green (that skippability is the
     exact hole that let the HUD→TODO 404 and the missing SPAWN CMD column ship). Run **every** journey on
     **BOTH** the HUD port AND the TODO port (per J6b), with **zero console errors / failed network
-    requests** throughout (a console error or 4xx/5xx on any step = FAIL):
+    requests** throughout (a console error or 4xx/5xx on any step = FAIL).
+    🔴 **RECORD VIDEO of every run (CEO 2026-06-27, Rule 22 — proof must be WATCHABLE, not a pass/fail
+    number).** The harness MUST create its browser context with **Playwright `recordVideo`** (e.g.
+    `newContext({recordVideo:{dir:"verify/videos"}})`) so each journey produces a real captured video of
+    the browser actually loading the page, rendering the element, clicking, and navigating. Save the
+    videos under `verify/videos/` (convert to `.mp4` for sharing if `ffmpeg` is present) and print their
+    paths. The pass/fail count is NOT the proof — the **video is** the proof; a verified requirement
+    without a recorded video is not proven. (These videos are what get attached to the card per Rule 22.)
+    The journeys:
     - **a. Open TODO board:** load `/` → the board renders (the "Priorities" H1, the addbar, the chips).
     - **b. Add a card:** type in the addbar + press Enter → the new card APPEARS in the list (assert the
       DOM node, not just the API).
