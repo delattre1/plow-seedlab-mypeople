@@ -943,9 +943,17 @@ gaps the CEO called out vs `127.0.0.1:9933`). All four are REQUIRED, gated by J4
    timestamp, see #4) and the comment body. NOT a bare line of text — the avatar/profile + bubble
    structure is the point. State-transition / "opened" events render as a compact centered timeline
    marker (no avatar), distinct from comment bubbles.
-3. **ASSIGNEE indicator.** The open card's sub-header (and the list card) shows an explicit assignee
-   chip: `@<assignee>` when assigned, or `unassigned`. When the assignee is an attachable agent_id it
-   is clickable → opens that agent's terminal (ITEM 3 / §5.7 attach); otherwise plain.
+3. **ASSIGNEE indicator — a clickable LINK to the engineer's tab (CEO 2026-06-27, NOT plain text).**
+   The **list card's `.meta`** AND the open card's sub-header show the assignee `@<assignee>` (or
+   `unassigned`). 🔴 **When the assignee is an attachable agent_id (`host/sess:tab`), it MUST render as
+   a real, visibly-styled LINK — an `<a class="asg-link">` (e.g. Volt + underline + pointer cursor),
+   NOT a plain `<span>`** — and clicking it **opens that engineer's tab/terminal** via the attach
+   resolver (`GET /todo/attach?agent=<assignee>` → `window.open(<base>/?arg=-t&arg=<target>)`, ITEM 3 /
+   §5.7). On the LIST card the click MUST `stopPropagation` (open the terminal, NOT the card modal).
+   `unassigned` or a non-agent author (`CEO`) stays plain text. **The opened URL host MUST be reachable
+   from the user's browser:** if the resolver's `base` is a loopback/`0.0.0.0` host, swap in
+   `window.location.hostname` (the host the user reached the board on) — §5.2, so the engineer's tab
+   opens over LAN/tailnet, not a dead `127.0.0.1`. (Gated J49.h.)
 4. **Relative "X ago" timestamps on every message + state event.** Render times as a compact relative
    string from the event `ts`: `<60s → "Ns ago"`, `<60m → "Nm ago"`, `<24h → "Nh ago"`, `<7d →
    "Nd ago"`, else a locale date. Show it in each comment bubble's header AND on each state-transition
@@ -1813,6 +1821,11 @@ exit 0.**
       with its **spawn command** (the SPAWN CMD cell, non-empty) AND its `mp revive <agent_id>`.
     - **g. Proof renders:** a card with an image/video proof (posted via API) shows the real
       `<img>`/`<video>` chip in the modal (no broken/text chip); there is NO proof-attach control in the UI.
+    - **h. Assignee is a clickable link to the engineer's tab (CEO 2026-06-27):** add a card, assign it
+      to a REAL agent on this node (e.g. the Boss from `/agents`); on the board, assert its assignee
+      renders as an **anchor `a.asg-link`** (tagName `A`, not a plain `<span>`), and **clicking it opens
+      the engineer's tab** — a popup/navigation to the attach URL (`…/?arg=-t&arg=<tmux target>`).
+      FAIL if the assignee is plain text or the click does not navigate to that engineer's terminal.
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
