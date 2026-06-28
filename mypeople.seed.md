@@ -82,6 +82,16 @@ live terminal.
   (`run/roster.json`, every agent it ever spawned + spawn cmd + cwd + session-id + retire state)
   and an **agents.json** of currently-live ones, and **re-announces** them on every heartbeat —
   so a queue-server restart (or a reaper false-prune) **self-heals** within one heartbeat cycle.
+  🔴 **RE-ANNOUNCE MUST be robust to a session/tab-less roster (2026-06-28 incident: a queue-daemon
+  swap left a whole team de-registered).** The re-announce derives each agent's tmux window from
+  `session`+`tab`; but a roster written by an older/other version (or rewritten by the server's own
+  register path) may carry ONLY `agent_id` and no `session`/`tab`. The client MUST therefore **derive
+  `session`/`tab` from the `agent_id` itself** (`<host>/<sess>:<tab>` → `session=<sess>`, `tab=<tab>`)
+  whenever the roster fields are missing, so it always finds the live `mc-<sess>:<tab>` window and
+  re-announces it. NEVER let a re-announce round-trip (server persists roster without session/tab →
+  client can't re-derive) silently drop live agents from the registry — the agents' tmux sessions are
+  alive; only the registration must heal. (Verify: corrupt the roster to agent_id-only, then assert the
+  client still re-announces all live windows within one heartbeat.)
 - **Status files:** `status/mc-<sess>/<tab>.json` = `{status(starting|working|idle|blocked), summary,
   timestamp, session_id, boss_id, backend, state}` — vocab **canonical: `working`, NOT `busy`**; written
   by the §4 lifecycle hooks. The HUD/`/agents` merges **both `summary` AND `status`** in (so the HUD can
