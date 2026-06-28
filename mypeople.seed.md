@@ -831,6 +831,17 @@ media-URL input** — the CEO will never click those; the agent managing the tas
 `POST /todo/proof {task_id, kind, url|body}` (and multipart upload) over the API. Do NOT generate a
 `<input type="file">` or an "Add proof" control anywhere in the served page. (This SUPERSEDES the
 earlier "the UI MUST expose a proof control" requirement — proof attach is API-only now.)
+🔴 **§7.7b — Proofs render INLINE in the chat thread, in post order (CEO 2026-06-28; the hydrated HUD
+regressed this).** The card modal MUST interleave **proofs and comments into ONE timeline sorted by
+`ts`**, rendering each proof **inline at the point it was posted** (an image/video bubble in chat
+order) — NOT hoisted into a separate region at the top of the card. Images/videos render at a generous
+inline size (e.g. `max-width:100%; max-height:~340px`), actually loading the media (a 404''d `<img>` =
+FAIL). The **chat read-region (the scrollable thread) must be large** — the modal is tall (~90vh) and
+the thread fills it (target ≥ ~360px of readable height); do NOT let header/proof blocks shrink the
+reading area. 🔴 **The server MUST serve BOTH proof URL forms so existing proofs render after an
+upgrade:** the new flat `/todo/proof-file/<name>` AND the legacy **`/todo/proof/<tid>/<file>`** (served
+from `<board-dir>/proofs/<tid>/<file>`, path-traversal-guarded). An in-place upgrade that drops the
+legacy route makes every pre-existing image 404 (the exact "attachments not rendering" bug). Gated J-i.
 🔴 **§7.4 JUMP-TO-LATEST in the comment thread (CEO 2026-06-21).** When a card's comment thread is
 long enough to scroll, the modal MUST show a **floating "jump to latest" control** (a small
 down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread area). Behavior:
@@ -1844,6 +1855,13 @@ exit 0.**
       renders as an **anchor `a.asg-link`** (tagName `A`, not a plain `<span>`), and **clicking it opens
       the engineer's tab** — a popup/navigation to the attach URL (`…/?arg=-t&arg=<tmux target>`).
       FAIL if the assignee is plain text or the click does not navigate to that engineer's terminal.
+    - **i. Attachments render INLINE in chat order + read-region size (CEO 2026-06-28, §7.7b):** open a
+      card that has an image attachment posted BETWEEN two comments (and a text attachment); assert
+      (a) the top proof region holds **0** hoisted attachments, (b) the image renders **inside the
+      thread** and **actually loaded** (`naturalWidth>0` — proves the proof URL serves, incl. the legacy
+      `/todo/proof/<tid>/<file>` route), (c) DOM order is comment1 < image < comment2 (inline at post
+      point), (d) the text attachment is inline too, (e) the chat read-region height ≥ ~360px. FAIL if
+      attachments are hoisted to the top, an image 404s/doesn't load, order is wrong, or the read area is small.
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
