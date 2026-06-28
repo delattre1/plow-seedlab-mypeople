@@ -857,7 +857,17 @@ down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread ar
   appears the moment the user scrolls up. (Common miss: implementing the keep-at-bottom-on-new-comment
   logic but forgetting to scroll to bottom on the initial open — then a long thread opens at the TOP
   with the button already showing. The open handler MUST force the scroll.) The button is a real
-  wired control (J31 — no dead buttons, zero console errors). **Quality bar:** no broken layout, **zero console errors**, every control wired to a
+  wired control (J31 — no dead buttons, zero console errors).
+- 🔴 **RESPECT USER-CONTROLLED SCROLL on every poll/re-render (CEO 2026-06-28; the hydrated HUD
+  force-jumped the user back).** The thread re-renders on the live poll, but it MUST NOT move the
+  user's scroll: (1) **change-guard** — if the thread content is unchanged since the last render
+  (compare a signature of comment+proof ids/ts), do NOT rebuild the DOM at all (leave scroll exactly
+  as the user left it); (2) **sticky-bottom** — capture `wasAtBottom`/`prevTop` BEFORE any rebuild;
+  after a content-changing rebuild, scroll to bottom ONLY if the user was already at the bottom (so a
+  new comment appends in view), OTHERWISE restore the user's EXACT `prevTop`. NEVER restore a stale
+  saved offset, never force-scroll a user who scrolled up. Initial open still force-scrolls to bottom
+  (above). Gated J-j.
+  **Quality bar:** no broken layout, **zero console errors**, every control wired to a
 real endpoint (no dead buttons) — browser-QA (J31) fails on console errors or a non-functional
 control. Reference for *quality/feature-completeness* (NOT for pixel-copy): the production board at
 `127.0.0.1:9933`.
@@ -1862,6 +1872,11 @@ exit 0.**
       `/todo/proof/<tid>/<file>` route), (c) DOM order is comment1 < image < comment2 (inline at post
       point), (d) the text attachment is inline too, (e) the chat read-region height ≥ ~360px. FAIL if
       attachments are hoisted to the top, an image 404s/doesn't load, order is wrong, or the read area is small.
+    - **j. Card-chat respects user-controlled scroll (CEO 2026-06-28, §7.4):** open a card with a long
+      (scrollable) thread; assert (a) at bottom + a poll/re-render → STILL at bottom; (b) scrolled to a
+      mid offset + an unchanged poll AND a content-changing re-render (a new comment posted) → the scroll
+      offset is UNCHANGED (no jump-back, within a few px); (c) at bottom + a new comment arrives → sticks
+      to bottom showing the new comment. FAIL if any poll/re-render force-jumps the user's scroll.
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
