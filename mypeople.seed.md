@@ -869,7 +869,14 @@ down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread ar
   `<img>/<video>` `load`/`loadeddata`, AND (b) a short settle cascade after open (e.g. timeouts at
   ~40/150/400/900/1800/3000ms) to catch fonts/late reflow — so the FINAL resting position is the bottom
   regardless of how much late content grows (a threshold-based re-pin misses a large image that pushes
-  the bottom past it).** The button is a real
+  the bottom past it).** 🔴 **WEBKIT/SAFARI robustness (CEO 2026-06-28: first click-open landed mid-list
+  in Safari while Chromium was fine):** (1) the modal goes `display:none→flex` on open and WebKit does
+  NOT have its layout ready synchronously, so the open scroll is DROPPED — pin to bottom inside a
+  `requestAnimationFrame` (double-rAF) after open, not just synchronously; (2) WebKit fires layout-
+  induced `scroll` events during open that would flip `stickBottom` off and kill the cascade/image
+  re-pins — so guard the scroll handler: ignore scroll events within ~250ms of a programmatic pin
+  (`_lastProg` timestamp), and only flip `stickBottom` on a GENUINE user scroll. (Reopen worked but
+  first-open didn't = the tell-tale of an unflushed-layout open scroll.) The button is a real
   wired control (J31 — no dead buttons, zero console errors).
 - 🔴 **RESPECT USER-CONTROLLED SCROLL on every poll/re-render (CEO 2026-06-28; the hydrated HUD
   force-jumped the user back).** The thread re-renders on the live poll, but it MUST NOT move the
@@ -1866,10 +1873,16 @@ exit 0.**
     to use the queue, or whose first turn produces no board action, = FAIL.
 49. 🔴 **EXTERNAL-BROWSER USER-JOURNEY SUITE — MANDATORY, NON-SKIPPABLE (CEO 2026-06-26: hydrates
     keep shipping bugs because we tested "process up + HTTP 200 + bytes", not the journeys the human
-    actually does in his browser).** This gate drives a **real browser** (headless Chromium via
-    Playwright/Puppeteer) through the ACTUAL user journeys and asserts the rendered DOM + real
-    navigation — NOT href strings. **It is NOT optional:** the Verify harness MUST self-install the
-    browser (e.g. `npx playwright install chromium`); if it cannot, the gate **FAILS** — it may NEVER
+    actually does in his browser).** This gate drives a **real browser** (Playwright/Puppeteer) through
+    the ACTUAL user journeys and asserts the rendered DOM + real navigation — NOT href strings.
+    🔴 **MUST run in WEBKIT (Safari's engine) — not only Chromium (CEO 2026-06-28: a card-open scroll bug
+    was GREEN in Chromium but BROKEN in Safari, because WebKit drops a synchronous scroll on a
+    just-shown modal; Chromium-only testing hid it from the CEO who uses Safari). Run the journeys in
+    `webkit` (at minimum; chromium too is fine).** 🔴 **And exercise the REAL interaction: OPEN a card by
+    CLICKING its row (`page.click('li.task … .task-text')`), NOT by calling `openModal()`/deep-linking —
+    a synthetic open takes a different code path and masks click-open bugs.** **It is NOT optional:** the
+    Verify harness MUST self-install the browser (`npx playwright install webkit chromium`); if it
+    cannot, the gate **FAILS** — it may NEVER
     be skipped or downgraded to a curl/grep substitute and still report green (that skippability is the
     exact hole that let the HUD→TODO 404 and the missing SPAWN CMD column ship). Run **every** journey on
     **BOTH** the HUD port AND the TODO port (per J6b), with **zero console errors / failed network
