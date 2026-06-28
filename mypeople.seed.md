@@ -772,6 +772,11 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
 - `.vb-sep` separators (`background:rgba(255,255,255,0.09)`), then **view buttons `button.vbtn`** (DM Mono 11px,
   `border-radius:9px`, `background:rgba(255,255,255,0.05)`, muted, uppercase): **`all`**, **`hide done`**,
   **`only done`**, **`unread only · <n>`**. The active filter is highlighted.
+- 🔴 **FILTERS MUST PERSIST across reload/navigation (CEO 2026-06-28: they reset every time, forcing
+  constant re-applying).** Persist the active state-chip filter AND the view filter (e.g. in
+  `localStorage`) on every change, and on page load RESTORE them — set the JS filter vars, re-apply the
+  active chip/`.vbtn` highlight, and render the list already filtered. Reloading the page MUST keep the
+  same filters active and the list filtered. Gated J-M.
 
 **CARD (`li.task`, also `.fresh`/`.done`):** `background:var(--surface)`, `border-radius:18px`. Layout
 `.task-top` = **[`.check` toggle (§7.6)] + `.task-main`**:
@@ -857,10 +862,14 @@ down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread ar
   appears the moment the user scrolls up. (Common miss: implementing the keep-at-bottom-on-new-comment
   logic but forgetting to scroll to bottom on the initial open — then a long thread opens at the TOP
   with the button already showing. The open handler MUST force the scroll.) 🔴 **Open MUST land on the
-  NEWEST comment even with async media (CEO 2026-06-28): inline images/videos load AFTER the initial
-  scroll and grow the content, pushing the bottom down — so each inline `<img>`/`<video>` MUST, on
-  `load`/`loadeddata`, RE-pin to bottom IF the user is still at/near the bottom (within ~80px). Else a
-  card with images opens anchored to a stale mid comment.** The button is a real
+  NEWEST comment AFTER all media settles (CEO 2026-06-28 P0: a heavy card with inline images opened
+  mid-list because the initial scroll ran before images loaded + grew the content). Use a `stickBottom`
+  flag, NOT a pixel threshold: `stickBottom=true` on open and while the user is at the bottom; set it
+  `false` the moment the user scrolls UP. While `stickBottom`, RE-pin to bottom on (a) every inline
+  `<img>/<video>` `load`/`loadeddata`, AND (b) a short settle cascade after open (e.g. timeouts at
+  ~40/150/400/900/1800/3000ms) to catch fonts/late reflow — so the FINAL resting position is the bottom
+  regardless of how much late content grows (a threshold-based re-pin misses a large image that pushes
+  the bottom past it).** The button is a real
   wired control (J31 — no dead buttons, zero console errors).
 - 🔴 **RESPECT USER-CONTROLLED SCROLL on every poll/re-render (CEO 2026-06-28; the hydrated HUD
   force-jumped the user back).** The thread re-renders on the live poll, but it MUST NOT move the
@@ -1910,6 +1919,12 @@ exit 0.**
       list — render defensively), (c) ZERO console/page errors, (d) post a comment via the composer UI →
       it APPEARS without a manual reload. FAIL if the list is blanked/truncated, any console error, the
       page is cacheable, or a posted comment doesn't show.
+    - **M. Heavy-card open-at-newest (after settle) + filter persistence (CEO 2026-06-28 P0):** (1) open a
+      HEAVY card (20+ comments WITH inline image/video proofs); after the images load + a settle delay,
+      assert the FINAL resting scroll position is at the BOTTOM and the newest item is in view (a
+      pre-settle check is not enough). (2) apply a state-chip + view filter, RELOAD the page, assert the
+      same filters are still active (chip/vbtn highlighted) AND the list is still filtered. FAIL if a
+      heavy card settles mid-list or filters reset on reload.
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
