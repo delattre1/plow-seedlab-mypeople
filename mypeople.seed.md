@@ -918,6 +918,10 @@ served old JS).** The HTML page responses (`GET /`, `/todos`, `/wall`, `/dashboa
 **`Cache-Control: no-cache, no-store, must-revalidate`** (+ `Pragma: no-cache`, `Expires: 0`) so the
 browser always revalidates and a shipped JS fix takes effect on the next load — never a stale-JS bug.
 (The board JSON is already `no-cache`.) Gated J-L. A page response without `no-cache` = FAIL.
+🔴 **AUTO-RELOAD when a new page/JS ships (CEO 2026-06-28: never make the user manually refresh to get
+a fix).** `/health` returns a **`build`** token (e.g. the `todos.html` mtime); the page records it on
+load and re-checks `/health` on a short interval — if `build` changed, it `location.reload()`s itself.
+So shipping a fixed `todos.html` reaches an already-open tab automatically within seconds.
 > **FOCUS + CARET MUST SURVIVE THE POLL (folded 2026-06-18 — CEO: the 1s reload kept stealing focus
 > from the add-task box, impossible to type).** The incremental update must **NEVER re-render or
 > replace the input element the user is currently focused in** (the add-task box, an inline-edit
