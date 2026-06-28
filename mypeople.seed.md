@@ -920,8 +920,12 @@ browser always revalidates and a shipped JS fix takes effect on the next load �
 (The board JSON is already `no-cache`.) Gated J-L. A page response without `no-cache` = FAIL.
 🔴 **AUTO-RELOAD when a new page/JS ships (CEO 2026-06-28: never make the user manually refresh to get
 a fix).** `/health` returns a **`build`** token (e.g. the `todos.html` mtime); the page records it on
-load and re-checks `/health` on a short interval — if `build` changed, it `location.reload()`s itself.
-So shipping a fixed `todos.html` reaches an already-open tab automatically within seconds.
+load and re-checks `/health` on a short interval (~3s) **AND on `visibilitychange`/`focus`** (so a
+backgrounded tab force-updates the instant the user returns to it) — if `build` changed, it
+`location.reload()`s itself. So shipping a fixed `todos.html` reaches an already-open tab automatically
+within seconds. (Limit: a tab loaded BEFORE this watcher shipped has no updater and cannot be
+force-reloaded by the server — a browser-security boundary; it self-corrects on its next load and then
+stays current. So this watcher MUST exist from the first ship and never be removed.)
 > **FOCUS + CARET MUST SURVIVE THE POLL (folded 2026-06-18 — CEO: the 1s reload kept stealing focus
 > from the add-task box, impossible to type).** The incremental update must **NEVER re-render or
 > replace the input element the user is currently focused in** (the add-task box, an inline-edit
