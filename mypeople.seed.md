@@ -903,6 +903,12 @@ few seconds automatically. Implement by **polling** the relevant endpoint on a s
 (≤~3s — `/todo/board` for the TODO incl. the open card's thread; `/clients`+`/agents`+`/roster` for
 the HUD) or via SSE; **merge into the DOM without losing the user's in-progress input** (don't clobber
 a half-typed comment). A page that needs a manual refresh to show a new comment = FAIL (J33).
+🔴 **THE PAGE/JS MUST BE SERVED `no-cache` (HARD — 2026-06-28 P0: a stale cached `todos.html` silently
+blanked the comment list + stopped new comments showing for the CEO; a fresh load worked but his tab
+served old JS).** The HTML page responses (`GET /`, `/todos`, `/wall`, `/dashboard`) MUST send
+**`Cache-Control: no-cache, no-store, must-revalidate`** (+ `Pragma: no-cache`, `Expires: 0`) so the
+browser always revalidates and a shipped JS fix takes effect on the next load — never a stale-JS bug.
+(The board JSON is already `no-cache`.) Gated J-L. A page response without `no-cache` = FAIL.
 > **FOCUS + CARET MUST SURVIVE THE POLL (folded 2026-06-18 — CEO: the 1s reload kept stealing focus
 > from the add-task box, impossible to type).** The incremental update must **NEVER re-render or
 > replace the input element the user is currently focused in** (the add-task box, an inline-edit
@@ -1898,6 +1904,12 @@ exit 0.**
       `body` is `overflow:hidden` (scroll stays in the card); (c) the message `.ev-text` computed
       `font-size ≈ 14.5px` and `line-height/font-size ≈ 1.55` (OLD-design readability). FAIL on open-not-
       at-bottom, page-scroll bleed, or cramped text.
+    - **L. ALL comments render + live append + no-cache (CEO 2026-06-28 P0 regression):** load a card with
+      N comments AND attachments; assert (a) the page response sends `Cache-Control: no-cache` (no stale
+      JS), (b) ALL N items render in the thread (a single throwing comment/attachment must NOT blank the
+      list — render defensively), (c) ZERO console/page errors, (d) post a comment via the composer UI →
+      it APPEARS without a manual reload. FAIL if the list is blanked/truncated, any console error, the
+      page is cacheable, or a posted comment doesn't show.
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
