@@ -856,7 +856,11 @@ down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread ar
   in the live-update path). The newest comment is visible and the button is hidden initially; it
   appears the moment the user scrolls up. (Common miss: implementing the keep-at-bottom-on-new-comment
   logic but forgetting to scroll to bottom on the initial open — then a long thread opens at the TOP
-  with the button already showing. The open handler MUST force the scroll.) The button is a real
+  with the button already showing. The open handler MUST force the scroll.) 🔴 **Open MUST land on the
+  NEWEST comment even with async media (CEO 2026-06-28): inline images/videos load AFTER the initial
+  scroll and grow the content, pushing the bottom down — so each inline `<img>`/`<video>` MUST, on
+  `load`/`loadeddata`, RE-pin to bottom IF the user is still at/near the bottom (within ~80px). Else a
+  card with images opens anchored to a stale mid comment.** The button is a real
   wired control (J31 — no dead buttons, zero console errors).
 - 🔴 **RESPECT USER-CONTROLLED SCROLL on every poll/re-render (CEO 2026-06-28; the hydrated HUD
   force-jumped the user back).** The thread re-renders on the live poll, but it MUST NOT move the
@@ -867,6 +871,16 @@ down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread ar
   new comment appends in view), OTHERWISE restore the user's EXACT `prevTop`. NEVER restore a stale
   saved offset, never force-scroll a user who scrolled up. Initial open still force-scrolls to bottom
   (above). Gated J-j.
+- 🔴 **SCROLL STAYS IN THE OPEN CARD (CEO 2026-06-28: wheel inside a card bled through to the page).**
+  While a card is open, the page behind MUST NOT scroll: set **`body.modal-open{overflow:hidden}`** (lock
+  the page) AND **`overscroll-behavior:contain`** on the scrollable thread (so wheeling past the
+  thread's top/bottom does not chain-scroll the document). Gated J-k.
+- 🔴 **CARD-CHAT READABILITY = the OLD design values (CEO 2026-06-28; the hydrated view was too cramped —
+  do NOT invent spacing, use the pre-hydration values).** The message body text is **`font-size:14.5px;
+  line-height:1.55`** (DM Sans, `white-space:pre-wrap; word-break:break-word`); the author/header line
+  ~`12.5px`; the avatar `34px`; message rows are **comfortable, full-width, border-separated** (row
+  padding ~`15px` vertical, gap ~`13px` — NOT narrow `max-width:80%` bubbles with `8px` padding and a
+  `10px` body). Source of truth: the OLD `todos.html` (`.ev`/`.ev-text`/`.ev-by` CSS). Gated J-k.
   **Quality bar:** no broken layout, **zero console errors**, every control wired to a
 real endpoint (no dead buttons) — browser-QA (J31) fails on console errors or a non-functional
 control. Reference for *quality/feature-completeness* (NOT for pixel-copy): the production board at
@@ -1877,6 +1891,13 @@ exit 0.**
       mid offset + an unchanged poll AND a content-changing re-render (a new comment posted) → the scroll
       offset is UNCHANGED (no jump-back, within a few px); (c) at bottom + a new comment arrives → sticks
       to bottom showing the new comment. FAIL if any poll/re-render force-jumps the user's scroll.
+    - **k. Card view: open-at-newest + scroll-scoping + readability (CEO 2026-06-28, §7.4):** open a card
+      with many comments (and an inline image); assert (a) the chat is scrolled to the BOTTOM and the
+      LAST comment is in the viewport on open (even after the image loads — re-pin); (b) wheeling inside
+      the thread at its top/bottom boundary leaves `document.scrollingElement.scrollTop` UNCHANGED and
+      `body` is `overflow:hidden` (scroll stays in the card); (c) the message `.ev-text` computed
+      `font-size ≈ 14.5px` and `line-height/font-size ≈ 1.55` (OLD-design readability). FAIL on open-not-
+      at-bottom, page-scroll bleed, or cramped text.
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
