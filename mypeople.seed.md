@@ -587,12 +587,13 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   client-side only — **EXCEPT pinned tasks float to the top (§7.3 below).**
 - 🔴 **§7.3 PINNING (WhatsApp-starred style — CEO 2026-06-20).** A task can be **pinned** (starred)
   to float above all normal tasks. Two `POST /todo/update` ops: **`pin {id}`** and **`unpin {id}`**.
-  - **`pin {id}`:** if the task is already pinned → no-op `{ok:true}`. Else, **enforce MAX 5 pinned**
-    — if 5 tasks are already pinned, REJECT with `{ok:false, error:"pin_limit"}` (do NOT pin a 6th;
-    the UI surfaces "unpin one first"). Otherwise set `pinned=true` and assign `pinRank = ++pinSeq`
-    (the board-level monotonic counter), so **the 1st-ever pin gets the lowest rank, the next higher,
-    etc. = pin order is insertion order.** `pinSeq` only ever increases (a later re-pin lands at the
-    end), and it persists in the store.
+  - **`pin {id}`:** if the task is already pinned → no-op `{ok:true}`. Else set `pinned=true` and
+    assign `pinRank = ++pinSeq` (the board-level monotonic counter), so **the 1st-ever pin gets the
+    lowest rank, the next higher, etc. = pin order is insertion order.** `pinSeq` only ever increases
+    (a later re-pin lands at the end), and it persists in the store.
+    **NO pin cap (CEO 2026-06-29): pin ANY number of tasks** — there is no `pin_limit`, no "max 5",
+    no rejection of an Nth pin. (The 2026-06-20 cap of 5 was removed.) The pinned group renders **all**
+    pinned tasks (the page must not slice/cap the pinned section either).
   - **`unpin {id}`:** set `pinned=false`, `pinRank=null`. The task returns to its NORMAL position
     (its place in `order`, newest-first) — unpinning never reshuffles the other pins.
   - **Board ordering (server + the page agree):** render **pinned tasks FIRST, sorted by `pinRank`
@@ -600,7 +601,7 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
     returned per task on `/todo/board` and **persist** across page reload AND server restart (they
     live in `board.v2.json`, §4).
   - This is NOT the cut "manual reorder" (no `reorder` op, no up/down arrows) — it is a binary
-    pin/unpin star with a capped, insertion-ordered pinned group.
+    pin/unpin star with an UNCAPPED, insertion-ordered pinned group.
 - `POST /todo/comment {task_id, by, body}` — append a thread comment; **`by` is the author's
   agent_id** for agent comments (`host/sess:tab`), or `"CEO"` for the human.
 - `GET /todo/attach?agent=<agent_id>` → `{ok, target:"mc-<sess>:<tab>", base:"<attach_base>"}` —
@@ -769,6 +770,13 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
   **working** = Warning `rgb(254,188,46)` on `rgba(254,188,46,0.18)`; **review (CEO)** = Info `rgb(90,200,250)`
   on `rgba(90,200,250,0.16)`; **blocked** = Danger `rgb(255,59,48)` on `rgba(255,59,48,0.16)`; **done** =
   `rgb(82,216,115)` on `rgba(52,199,89,0.16)`; **cancelled** = muted on `rgba(142,142,147,0.18)`.
+- 🔴 **The state chips are MULTI-SELECT ON/OFF TOGGLES (CEO 2026-06-29: he needs to DESELECT a state —
+  e.g. `cancelled` — so those tasks stop appearing).** Model = a SET of *enabled* (shown) states; **by
+  default ALL states are enabled** (every chip ON). Clicking a chip toggles that state in/out of the
+  set: a task is visible iff its `state` is in the enabled set. An ON chip looks selected (full color);
+  an OFF (deselected) chip is visibly muted (dimmed/struck, e.g. `aria-pressed="false"`). This is NOT
+  the old single-"show only this state" radio behaviour — multiple chips can be off at once. Persist the
+  enabled set (e.g. `localStorage` `mp_states`) and restore it on load (chips + list reflect it). Gated J-O.
 - `.vb-sep` separators (`background:rgba(255,255,255,0.09)`), then **view buttons `button.vbtn`** (DM Mono 11px,
   `border-radius:9px`, `background:rgba(255,255,255,0.05)`, muted, uppercase): **`all`**, **`hide done`**,
   **`only done`**, **`unread only · <n>`**. The active filter is highlighted.
@@ -802,12 +810,18 @@ ping count, and a **★ pin star** (§7.3 — the star is **PIN ONLY; it is NOT 
 §7.6 for the required DONE control). Clicking the star pins/unpins via `update{op:'pin'|'unpin',
 id}`; **pinned cards render in a visually-distinct group ("Pinned"/★) at the TOP of the board, in
 pin-rank order**, above all normal cards. The star is filled/Volt when pinned, outline when not.
-When 5 are already pinned, attempting a 6th pin is **blocked** with a clear hint (e.g. toast/disabled
-state "Unpin one first — max 5"), matching the server's `pin_limit` rejection. Pin state survives
-reload (re-fetch `/todo/board`). Clicking a card opens a **card modal** with: the done-condition and the **comment
+**There is NO pin cap (CEO 2026-06-29) — pin as many tasks as you like; the pinned group renders ALL
+of them.** Pin state survives reload (re-fetch `/todo/board`). Clicking a card opens a **card modal** with: the done-condition and the **comment
 thread** (author + body + timestamp, newest last) with a **composer** to post a comment (NO
 brainstorm block — removed). Filter/sort controls and live counts
 are welcome.
+🔴 **§7.8 — DELETE-TASK control (CEO 2026-06-29: he must be able to delete a task; the control had
+gone missing).** The card modal MUST carry a **clear, labelled delete control** (e.g. a "Delete task"
+button in the modal's state row, visually distinct/danger-styled). Clicking it **confirms first**
+(`confirm()` / a confirm step is fine), then calls **`POST /todo/update {op:'del', id}`** (the server
+op already exists → `STORE.delete(id)`), and on success **closes the modal + reloads the board** so the
+task is gone from the list. The delete MUST remove the task from the board store (`board.v2.json`) — it
+is gone from BOTH the rendered board and the data, surviving reload. Gated J-O.
 🔴 **§7.6 — One-click DONE control = the on-card `.check` toggle (CEO 2026-06-25; MATCH the live app
 `127.0.0.1:9933` 1:1 — it is NOT a dropdown and NOT the star).** The PRIMARY complete-a-task control is a
 **`.check` toggle rendered as the LEFTMOST element of EVERY card row** (`<div class="check"></div>`),
@@ -1961,6 +1975,16 @@ exit 0.**
       appears in the thread AND is visible in the viewport without a reload (the new comment sorts to the
       true bottom and scrolls into view). FAIL on any raw/negative timestamp or a submitted comment that
       doesn't show/scroll into view. (Run in webkit + chromium.)
+    - **O. Delete-task + toggleable state filters + uncapped pins (CEO 2026-06-29, daily-use blockers;
+      §7.8/§7.0/§7.3):** seed a sandbox board with fixtures spanning states (incl. ≥2 `cancelled` and ≥8
+      others) and open cards by a REAL row CLICK. (a) DELETE: open a task, click the "Delete task" control
+      (auto-accept the confirm), assert it is gone from the board DOM AND from `/todo/board` data. (b)
+      FILTER TOGGLE: assert `cancelled` tasks show by default; click the `cancelled` chip to DESELECT →
+      cancelled tasks hidden; RELOAD → still hidden + chip shows OFF (selection persisted); re-select →
+      they reappear. (c) UNCAPPED PINS: pin 6+ tasks via the star → all stay pinned + render in the pinned
+      group + counted in `/todo/board` data; RELOAD → still all pinned (no `pin_limit`, no cap). FAIL on a
+      dead delete control, a task that survives delete, a filter that won't toggle/persist, or any pin
+      rejected/dropped past 5. (Run in webkit + chromium.)
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
