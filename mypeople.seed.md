@@ -1030,10 +1030,17 @@ gaps the CEO called out vs `127.0.0.1:9933`). All four are REQUIRED, gated by J4
    `window.location.hostname` (the host the user reached the board on) — §5.2, so the engineer's tab
    opens over LAN/tailnet, not a dead `127.0.0.1`. (Gated J49.h.)
 4. **Relative "X ago" timestamps on every message + state event.** Render times as a compact relative
-   string from the event `ts`: `<60s → "Ns ago"`, `<60m → "Nm ago"`, `<24h → "Nh ago"`, `<7d →
-   "Nd ago"`, else a locale date. Show it in each comment bubble's header AND on each state-transition
-   marker (e.g. `⌁ needs_brainstorm → working · 4m ago`). It updates live with the §7.2 poll (a "2m ago" becomes
-   "3m ago" without a reload).
+   string from the event `ts`: `<5s → "just now"`, `<60s → "Ns ago"`, `<60m → "Nm ago"`, `<24h →
+   "Nh ago"`, `<7d → "Nd ago"`, else a locale date. Show it in each comment bubble's header AND on each
+   state-transition marker (e.g. `⌁ needs_brainstorm → working · 4m ago`). It updates live with the §7.2
+   poll (a "2m ago" becomes "3m ago" without a reload). 🔴 **NORMALIZE the ts UNIT — the data has MIXED
+   seconds-epoch AND milliseconds-epoch timestamps (CEO 2026-06-29: rendered "-1780863085504s ago").
+   Treat `ts > 1e12` as ms and divide by 1000 BEFORE computing the delta; clamp negatives to "just now".
+   NEVER show a raw unix number or a negative.** 🔴 **Apply the SAME normalization in the comment/proof
+   TIMELINE SORT (`sort by normalized ts`) — otherwise ms-epoch items sort after everything and a new
+   (seconds-epoch) comment lands mid-thread instead of at the bottom, so it appears "not to render"
+   (scroll-to-bottom lands past it). 🔴 And on the user posting their OWN comment, force `stickBottom`
+   + scroll to bottom so their new comment is appended AND visible. Gated J-N.**
 Reference for these details (quality, NOT pixel-copy): the live board at `127.0.0.1:9933`.
 
 ---
@@ -1946,6 +1953,14 @@ exit 0.**
       pre-settle check is not enough). (2) apply a state-chip + view filter, RELOAD the page, assert the
       same filters are still active (chip/vbtn highlighted) AND the list is still filtered. FAIL if a
       heavy card settles mid-list or filters reset on reload.
+    - **N. Comment thread: human-readable timestamps + real submit renders (CEO 2026-06-29, WebKit):**
+      render comments whose `ts` are stored as BOTH seconds-epoch AND ms-epoch; assert (a) every shown
+      timestamp is a proper relative string ("just now"/"Nm ago"/"Nh ago"/"Nd ago") — NO raw unix number
+      or negative anywhere (check the timestamp segment, not the agent name); a 5-min-old ts in EITHER
+      unit shows "5m ago"; (b) TYPE a comment in the composer and SUBMIT it (real interaction) → it
+      appears in the thread AND is visible in the viewport without a reload (the new comment sorts to the
+      true bottom and scrolls into view). FAIL on any raw/negative timestamp or a submitted comment that
+      doesn't show/scroll into view. (Run in webkit + chromium.)
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
