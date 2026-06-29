@@ -643,9 +643,11 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
 
 **You GENERATE both the page and the server** (truly generative — no pinned/pasted UI). They must
 agree on: the routes above, the `set` field names (`doneCondition`/`state` — see above), the `state`
-enum **`needs_brainstorm|working|review|done`** (main flow) **+ `blocked|cancelled`** (side-exits) —
-**no `idle`** (Boss 2026-06-26: REVERTED to the canonical boss-doctrine model — `needs_brainstorm` is
-the initial state, `idle` is NOT a task state; the `review` state DISPLAYS as **"review (CEO)"**), the
+enum **`needs_brainstorm|working|review|done`** (main flow) **+ `blocked|cancelled|recurring`** (side-exits)
+— **no `idle`** (Boss 2026-06-26: REVERTED to the canonical boss-doctrine model — `needs_brainstorm` is
+the initial state, `idle` is NOT a task state; the `review` state DISPLAYS as **"review (CEO)"**). 🔴 **`recurring`
+(CEO 2026-06-29) is a 4th-lane state for things done ~daily and reused (stream on/off, YouTube upload): it
+lives in its OWN lane/view, SEPARATE from active work, so it never pollutes the working board** (see §7.0). The
 board shape (per-task `text`,
 `state`, `assignee`, `doneCondition`, `workToDone`, `comments[]`, `proofs[]`, `unread`,
 `verified`, `pingsToBoss`) — **no `brainstorm` field**, and the board→Boss ping. **The page makes same-origin calls and carries
@@ -784,7 +786,16 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
   enabled set (e.g. `localStorage` `mp_states`) and restore it on load (chips + list reflect it). Gated J-O.
 - `.vb-sep` separators (`background:rgba(255,255,255,0.09)`), then **view buttons `button.vbtn`** (DM Mono 11px,
   `border-radius:9px`, `background:rgba(255,255,255,0.05)`, muted, uppercase): **`all`**, **`hide done`**,
-  **`only done`**, **`unread only · <n>`**. The active filter is highlighted.
+  **`only done`**, **`unread only · <n>`**, and **`↻ recurring · <n>`**. The active filter is highlighted.
+- 🔴 **RECURRING LANE (CEO 2026-06-29).** `recurring` is a 4th state with its OWN lane so daily-reuse
+  tasks don't pollute the working board. Surface it as a dedicated **`↻ recurring` view button** (a
+  `.vbtn` with a live count of recurring tasks) + a `.badge.st-recurring` (its own color) on the card.
+  Behaviour: **the ↻ recurring view shows ONLY `state==='recurring'` tasks; EVERY OTHER view (all /
+  hide done / only done / unread) EXCLUDES recurring tasks entirely** (so they never appear on the
+  working board). Setting a task's state to `recurring` (modal `<select>` option) moves it OUT of the
+  working board INTO the lane; recurring tasks are kept OUT of the done/open/total working stats. The
+  view selection persists like the other filters. (Default UX = a 4th lane/view, not an orthogonal flag.)
+  Gated J-Q.
 - 🔴 **FILTERS MUST PERSIST across reload/navigation (CEO 2026-06-28: they reset every time, forcing
   constant re-applying).** Persist the active state-chip filter AND the view filter (e.g. in
   `localStorage`) on every change, and on page load RESTORE them — set the JS filter vars, re-apply the
@@ -801,8 +812,9 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
 
 (VERIFY J-gate: the served `:9933/` MUST contain ALL of `.mark`/logo "P", h1 "Priorities", the `Boss
 source-of-truth · MyPeople` meta + Volt HUD↗, the 3 stat pills, `.live-pill`+`.live-dot`, the clock, the
-`.addbar` input + `.btn-volt` "Add", and the full 6 `.chip.st-*` set + 4 `.vbtn` view buttons. A page
-missing any of these = FAIL — that is the leaner-page drift §7.0 exists to prevent.)
+`.addbar` input + `.btn-volt` "Add", and the full 6 `.chip.st-*` set + 5 `.vbtn` view buttons (all /
+hide done / only done / unread / ↻ recurring). A page missing any of these = FAIL — that is the
+leaner-page drift §7.0 exists to prevent.)
 
 **TODO (`/`) — production-quality (CEO 2026-06-18: match the production app's UX, not a thin
 sketch).** The VISIBLE Instrument-Serif H1 on the board is exactly **"Priorities"** (CEO 2026-06-25 —
@@ -810,7 +822,7 @@ match live `:9933` exactly; the logo + the meta line carry the "MyPeople" identi
 "MyPeople - Priorities" heading or eyebrow line above/beside the H1). The browser-TAB `<title>` tag is
 `MyPeople - Priorities` (tab only — NOT shown on the board). Then: an add-a-task input (Enter to add); the board as a list of
 task **cards**, each showing the title (inline-editable), a **state badge** (`needs_brainstorm|working|review|
-done|blocked|cancelled`, color-coded; `review` DISPLAYS as **"review (CEO)"**), the **assignee** chip, an **unread** badge, a `↑boss`
+done|blocked|cancelled|recurring`, color-coded; `review` DISPLAYS as **"review (CEO)"**), the **assignee** chip, an **unread** badge, a `↑boss`
 ping count, and a **★ pin star** (§7.3 — the star is **PIN ONLY; it is NOT the done control** — see
 §7.6 for the required DONE control). Clicking the star pins/unpins via `update{op:'pin'|'unpin',
 id}`; **pinned cards render in a visually-distinct group ("Pinned"/★) at the TOP of the board, in
@@ -1852,7 +1864,7 @@ exit 0.**
 > Gates J14–J44 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 
 45. **HOME VIEW-FILTER TOOLBAR (§7.5, CEO 2026-06-23, UI-diff alignment LOCKED).** The served
-    `:9933/` renders a view-filter button row **`all` / `hide done` / `only done` / `unread`**. In a
+    `:9933/` renders a view-filter button row **`all` / `hide done` / `only done` / `unread` / `↻ recurring`**. In a
     real browser (or DOM assertion): with cards in mixed states + at least one `unread>0`, clicking
     **`hide done`** removes every `state=done` card from the visible list; **`only done`** shows ONLY
     `state=done` cards; **`unread`** shows ONLY cards with `unread>0`; **`all`** restores the full
@@ -2001,6 +2013,14 @@ exit 0.**
       thread opens scrolled to the newest comment. FAIL if the modal occupies a small share of the viewport
       in either dimension or the font is back at ~14.5px.
       (Run in webkit + chromium.)
+    - **Q. Recurring lane (CEO 2026-06-29, §7.0 4th state):** seed working/done/cancelled + ≥2 `recurring`
+      fixtures. Assert (a) the DEFAULT view shows ZERO recurring tasks (no `.badge.st-recurring` on the
+      working board — recurring never pollutes it); (b) the `↻ recurring` view button shows a count >0;
+      (c) clicking `↻ recurring` shows ONLY recurring tasks (every visible card is recurring); (d) that
+      view selection PERSISTS across reload; (e) FLOW — open a `working` task, set its state to `recurring`
+      via the modal `<select>` → it DISAPPEARS from the working board and APPEARS in the `↻ recurring` lane.
+      FAIL if recurring tasks show on the working board, the lane is mixed, or set→recurring doesn't move it.
+      (Run in webkit + chromium.)
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
@@ -2105,7 +2125,7 @@ that passes every gate is correct, per Decision B.)
 | F1 | add task (Enter) | `update{op:add,text}` → task born **`needs_brainstorm`**, prepended to `order` | J3 |
 | F2 | delete task | `update{op:del,id}` removes from tasks+order | J15 |
 | F3 | edit text / done-condition / assignee inline | `update{op:set,id,text\|doneCondition\|assignee}` patches the field (REAL names, §6) | J16 |
-| F4 | state change | `update{op:set,id,state}` (field **`state`**) or `/todo/status`; enum `needs_brainstorm\|working\|review\|done` + `blocked\|cancelled` (NO `idle`; `review` displays "review (CEO)") | J17 |
+| F4 | state change | `update{op:set,id,state}` (field **`state`**) or `/todo/status`; enum `needs_brainstorm\|working\|review\|done` + `blocked\|cancelled\|recurring` (NO `idle`; `review` displays "review (CEO)"; `recurring` = its own lane, §7.0) | J17 |
 | F5 | done checkbox / work-to-done toggle | `set{done}`/`set{workToDone}` flips `state`→`done`, renders strikethrough | J18 |
 | F6 | **needs_brainstorm → working, NO gate** (boss-doctrine, REVERTED 2026-06-26) | new task is `needs_brainstorm`; an engineer `set{state:working}` with no brainstorm/answer gate | J19 |
 | ~~F7~~ | ~~brainstorm/answer gate~~ **REMOVED (CEO 2026-06-18)** | no `/todo/brainstorm`, no `/todo/answer`, no `brainstorm` field, no needs-brainstorm banner | J20 (negative) |
