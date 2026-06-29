@@ -862,8 +862,8 @@ order) — NOT hoisted into a separate region at the top of the card. Images/vid
 inline size (e.g. `max-width:100%; max-height:~340px`), actually loading the media (a 404''d `<img>` =
 FAIL). The **chat read-region (the scrollable thread) must be large.** 🔴 **The open card modal is the
 CEO's PRIMARY surface (he is inside a card ~90% of the time), so it MUST be LARGE (CEO 2026-06-29: the
-old ~680px-wide box was too small to read): width ≈ 80vw (e.g. `min(1300px,80vw)`) AND height ≈ 80vh —
-it occupies ~80% of the viewport in BOTH dimensions (a clear majority, with a little margin/border around
+old ~680px-wide box was too small to read): width ≈ 88vw (e.g. `min(1400px,88vw)`) AND height ≈ 88vh —
+it occupies ~88% of the viewport in BOTH dimensions (a large majority, with a small margin/border around
 it), not a small centered box.** The thread fills it (target ≥ ~360px of readable height); do NOT let header/proof blocks
 shrink the reading area. 🔴 **The server MUST serve BOTH proof URL forms so existing proofs render after an
 upgrade:** the new flat `/todo/proof-file/<name>` AND the legacy **`/todo/proof/<tid>/<file>`** (served
@@ -1994,9 +1994,9 @@ exit 0.**
       dead delete control, a task that survives delete, a filter that won't toggle/persist, or any pin
       rejected/dropped past 5. (Run in webkit + chromium.)
     - **P. Open card is near-fullscreen + big readable font (CEO 2026-06-29, primary surface; §7.0/§7.4):**
-      open a card by a REAL row CLICK and assert (a) the open `#modal` width is ≈80% of the viewport AND
-      (b) its height is ≈80% of the viewport (a clear majority with margin — accept ~74–88%, not a small
-      centered box and not full-bleed); (c) the message `.ev-text` computed `font-size ≈ 18px` (the bumped
+      open a card by a REAL row CLICK and assert (a) the open `#modal` width is ≈88% of the viewport AND
+      (b) its height is ≈88% of the viewport (a large majority with a small margin — accept ~82–93%, not a
+      small centered box and not full-bleed); (c) the message `.ev-text` computed `font-size ≈ 18px` (the bumped
       value); (d) the existing fixes still hold — `body` is `overflow:hidden` (scroll containment) and the
       thread opens scrolled to the newest comment. FAIL if the modal occupies a small share of the viewport
       in either dimension or the font is back at ~14.5px.
