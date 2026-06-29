@@ -786,11 +786,13 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
   enabled set (e.g. `localStorage` `mp_states`) and restore it on load (chips + list reflect it). Gated J-O.
 - `.vb-sep` separators (`background:rgba(255,255,255,0.09)`), then **view buttons `button.vbtn`** (DM Mono 11px,
   `border-radius:9px`, `background:rgba(255,255,255,0.05)`, muted, uppercase): **`all`**, **`hide done`**,
-  **`only done`**, **`unread only · <n>`**, and **`↻ recurring · <n>`**. The active filter is highlighted.
+  **`only done`**, **`unread only · <n>`**, and **`recurring · <n>`**. The active filter is highlighted.
 - 🔴 **RECURRING LANE (CEO 2026-06-29).** `recurring` is a 4th state with its OWN lane so daily-reuse
-  tasks don't pollute the working board. Surface it as a dedicated **`↻ recurring` view button** (a
+  tasks don't pollute the working board. Surface it as a dedicated **`recurring` view button** (a
   `.vbtn` with a live count of recurring tasks) + a `.badge.st-recurring` (its own color) on the card.
-  Behaviour: **the ↻ recurring view shows ONLY `state==='recurring'` tasks; EVERY OTHER view (all /
+  🔴 **The view label is TEXT-ONLY — "recurring", NO icon (CEO 2026-06-29: the others have no icons, so
+  an icon here is inconsistent). Do NOT prefix it with `↻` or any glyph.**
+  Behaviour: **the recurring view shows ONLY `state==='recurring'` tasks; EVERY OTHER view (all /
   hide done / only done / unread) EXCLUDES recurring tasks entirely** (so they never appear on the
   working board). Setting a task's state to `recurring` (modal `<select>` option) moves it OUT of the
   working board INTO the lane; recurring tasks are kept OUT of the done/open/total working stats. The
@@ -813,7 +815,7 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
 (VERIFY J-gate: the served `:9933/` MUST contain ALL of `.mark`/logo "P", h1 "Priorities", the `Boss
 source-of-truth · MyPeople` meta + Volt HUD↗, the 3 stat pills, `.live-pill`+`.live-dot`, the clock, the
 `.addbar` input + `.btn-volt` "Add", and the full 6 `.chip.st-*` set + 5 `.vbtn` view buttons (all /
-hide done / only done / unread / ↻ recurring). A page missing any of these = FAIL — that is the
+hide done / only done / unread / recurring). A page missing any of these = FAIL — that is the
 leaner-page drift §7.0 exists to prevent.)
 
 **TODO (`/`) — production-quality (CEO 2026-06-18: match the production app's UX, not a thin
@@ -1864,7 +1866,7 @@ exit 0.**
 > Gates J14–J44 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
 
 45. **HOME VIEW-FILTER TOOLBAR (§7.5, CEO 2026-06-23, UI-diff alignment LOCKED).** The served
-    `:9933/` renders a view-filter button row **`all` / `hide done` / `only done` / `unread` / `↻ recurring`**. In a
+    `:9933/` renders a view-filter button row **`all` / `hide done` / `only done` / `unread` / `recurring`**. In a
     real browser (or DOM assertion): with cards in mixed states + at least one `unread>0`, clicking
     **`hide done`** removes every `state=done` card from the visible list; **`only done`** shows ONLY
     `state=done` cards; **`unread`** shows ONLY cards with `unread>0`; **`all`** restores the full
@@ -2015,10 +2017,11 @@ exit 0.**
       (Run in webkit + chromium.)
     - **Q. Recurring lane (CEO 2026-06-29, §7.0 4th state):** seed working/done/cancelled + ≥2 `recurring`
       fixtures. Assert (a) the DEFAULT view shows ZERO recurring tasks (no `.badge.st-recurring` on the
-      working board — recurring never pollutes it); (b) the `↻ recurring` view button shows a count >0;
-      (c) clicking `↻ recurring` shows ONLY recurring tasks (every visible card is recurring); (d) that
+      working board — recurring never pollutes it); (b) the `recurring` view button shows a count >0
+      AND its label is TEXT-ONLY (no `↻`/glyph — consistent with the other lanes);
+      (c) clicking `recurring` shows ONLY recurring tasks (every visible card is recurring); (d) that
       view selection PERSISTS across reload; (e) FLOW — open a `working` task, set its state to `recurring`
-      via the modal `<select>` → it DISAPPEARS from the working board and APPEARS in the `↻ recurring` lane.
+      via the modal `<select>` → it DISAPPEARS from the working board and APPEARS in the `recurring` lane.
       FAIL if recurring tasks show on the working board, the lane is mixed, or set→recurring doesn't move it.
       (Run in webkit + chromium.)
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
