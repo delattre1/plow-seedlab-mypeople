@@ -765,8 +765,12 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
 - A **clock** `.subt` showing the current time (DM Mono 12px, `--text-dark`), updating live.
 
 **ADD BAR (`.addbar`):**
-- An **`<input>`** placeholder **`Add a priority and hit Enter…`** — DM Sans **20px**,
+- An **`<input>`** placeholder **`Add a priority and hit Enter…`** — DM Sans **18px**,
   `background:var(--surface)`, `border-radius:14px`, padding ~16px 20px.
+  🔴 **INPUT FONT = card-body font (CEO 2026-06-29: typing was smaller than reading).** Both the
+  task-input AND the card's comment composer (`<textarea>`) MUST use **`font-size:18px`** (DM Sans) — the
+  SAME size as the card message body (`.ev-text`), so what you type is as readable as what you read. Do
+  NOT leave the composer at the browser-default (~13px) or the input at a different size.
 - A **`button.btn-volt` "Add"** NEXT TO the input — `background:var(--volt)`, color `var(--midnight) #01000A`,
   `border-radius:14px`, DM Sans 17px weight 700. (Enter in the input AND the Add button both add the task.)
 
@@ -2022,7 +2026,9 @@ exit 0.**
       (c) clicking `recurring` shows ONLY recurring tasks (every visible card is recurring); (d) that
       view selection PERSISTS across reload; (e) FLOW — open a `working` task, set its state to `recurring`
       via the modal `<select>` → it DISAPPEARS from the working board and APPEARS in the `recurring` lane.
-      FAIL if recurring tasks show on the working board, the lane is mixed, or set→recurring doesn't move it.
+      (f) the task-input AND the comment composer computed `font-size ≈ 18px` (match the card body).
+      FAIL if recurring tasks show on the working board, the lane is mixed, set→recurring doesn't move it,
+      or an input font is not ~18px.
       (Run in webkit + chromium.)
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
