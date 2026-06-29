@@ -188,9 +188,14 @@ requires header `X-Queue-Secret: <QUEUE_SECRET>`; JSON bodies):
   node's hydration lifecycle (§5.11) — `hydrating` from bring-up, `ready` once the inner Verify
   passes. All surface in `/clients` for the §7.1 grid (which shows each node's `state`).
 - `POST /task/submit` `{type(send|peek|kill|spawn|answer|revive), target_agent, payload}` →
-  `{task_id}`; `GET /task/poll?hostname=<h>` (clients long/short-poll their tasks); `POST
-  /task/result` `{task_id, ok, result}`; `GET /task/<id>` → task status+result (submitters wait
-  on this).
+  `{task_id}`; `GET /task/poll?hostname=<h>` → 🔴 **a JSON ARRAY of ALL the caller's currently-undelivered
+  tasks (possibly empty `[]`)**, each `{task_id, type, target_agent, payload, …}`; the server marks them
+  delivered. The queue-client **iterates the array** and executes each task (dispatching on `type`),
+  posting `POST /task/result` `{task_id, ok, result}` per task. (HARD CONTRACT — poll is an ARRAY and the
+  dispatch key is `type`, NOT a single task / `action`. CEO 2026-06-29: a pre-V2 client that read poll as
+  a SINGLE task + keyed on `action` silently never claimed queue-routed spawns against the V2 server —
+  a golden image baked from that older seed could not be driven over the central queue.) `GET /task/<id>`
+  → task status+result (submitters wait on this).
 - `GET /roster` → JSON array (retired/known engineers, for the HUD revive table).
 - `GET /dashboard` → the HUD HTML (**public**). **The page carries NO secret (§5.12).** Serving it
   mints a browser session (httpOnly cookie); its same-origin JS calls the gated endpoints with the
