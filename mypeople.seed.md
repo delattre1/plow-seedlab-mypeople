@@ -860,9 +860,12 @@ regressed this).** The card modal MUST interleave **proofs and comments into ONE
 `ts`**, rendering each proof **inline at the point it was posted** (an image/video bubble in chat
 order) — NOT hoisted into a separate region at the top of the card. Images/videos render at a generous
 inline size (e.g. `max-width:100%; max-height:~340px`), actually loading the media (a 404''d `<img>` =
-FAIL). The **chat read-region (the scrollable thread) must be large** — the modal is tall (~90vh) and
-the thread fills it (target ≥ ~360px of readable height); do NOT let header/proof blocks shrink the
-reading area. 🔴 **The server MUST serve BOTH proof URL forms so existing proofs render after an
+FAIL). The **chat read-region (the scrollable thread) must be large.** 🔴 **The open card modal is the
+CEO's PRIMARY surface (he is inside a card ~90% of the time), so it MUST be NEAR-FULLSCREEN (CEO
+2026-06-29: the old ~680px-wide box was too small to read): width ≈ 95vw (e.g. `min(1500px,95vw)`) AND
+height ≈ 95vh — it occupies a LARGE share of the viewport in BOTH dimensions (≥ ~88% each), not a small
+centered box.** The thread fills it (target ≥ ~360px of readable height); do NOT let header/proof blocks
+shrink the reading area. 🔴 **The server MUST serve BOTH proof URL forms so existing proofs render after an
 upgrade:** the new flat `/todo/proof-file/<name>` AND the legacy **`/todo/proof/<tid>/<file>`** (served
 from `<board-dir>/proofs/<tid>/<file>`, path-traversal-guarded). An in-place upgrade that drops the
 legacy route makes every pre-existing image 404 (the exact "attachments not rendering" bug). Gated J-i.
@@ -910,12 +913,12 @@ down-arrow button, e.g. `↓`, anchored bottom-right of the SCROLLABLE thread ar
   While a card is open, the page behind MUST NOT scroll: set **`body.modal-open{overflow:hidden}`** (lock
   the page) AND **`overscroll-behavior:contain`** on the scrollable thread (so wheeling past the
   thread's top/bottom does not chain-scroll the document). Gated J-k.
-- 🔴 **CARD-CHAT READABILITY = the OLD design values (CEO 2026-06-28; the hydrated view was too cramped —
-  do NOT invent spacing, use the pre-hydration values).** The message body text is **`font-size:14.5px;
-  line-height:1.55`** (DM Sans, `white-space:pre-wrap; word-break:break-word`); the author/header line
-  ~`12.5px`; the avatar `34px`; message rows are **comfortable, full-width, border-separated** (row
-  padding ~`15px` vertical, gap ~`13px` — NOT narrow `max-width:80%` bubbles with `8px` padding and a
-  `10px` body). Source of truth: the OLD `todos.html` (`.ev`/`.ev-text`/`.ev-by` CSS). Gated J-k.
+- 🔴 **CARD-CHAT READABILITY — BIG + comfortable (CEO 2026-06-29: the card is his primary surface and was
+  too small to read; supersedes the earlier 14.5px "OLD-design" value).** The message body text is
+  **`font-size:18px; line-height:1.6`** (DM Sans, `white-space:pre-wrap; word-break:break-word`); the
+  author/header line ~`12.5px`; the avatar `34px`; message rows are **comfortable, full-width,
+  border-separated** (row padding ~`15px` vertical, gap ~`13px` — NOT narrow `max-width:80%` bubbles with
+  `8px` padding and a cramped body). Gated J-k + J-P.
   **Quality bar:** no broken layout, **zero console errors**, every control wired to a
 real endpoint (no dead buttons) — browser-QA (J31) fails on console errors or a non-functional
 control. Reference for *quality/feature-completeness* (NOT for pixel-copy): the production board at
@@ -1958,7 +1961,7 @@ exit 0.**
       LAST comment is in the viewport on open (even after the image loads — re-pin); (b) wheeling inside
       the thread at its top/bottom boundary leaves `document.scrollingElement.scrollTop` UNCHANGED and
       `body` is `overflow:hidden` (scroll stays in the card); (c) the message `.ev-text` computed
-      `font-size ≈ 14.5px` and `line-height/font-size ≈ 1.55` (OLD-design readability). FAIL on open-not-
+      `font-size ≈ 18px` and `line-height/font-size ≈ 1.6` (BIG, comfortable readability). FAIL on open-not-
       at-bottom, page-scroll bleed, or cramped text.
     - **L. ALL comments render + live append + no-cache (CEO 2026-06-28 P0 regression):** load a card with
       N comments AND attachments; assert (a) the page response sends `Cache-Control: no-cache` (no stale
@@ -1990,6 +1993,13 @@ exit 0.**
       group + counted in `/todo/board` data; RELOAD → still all pinned (no `pin_limit`, no cap). FAIL on a
       dead delete control, a task that survives delete, a filter that won't toggle/persist, or any pin
       rejected/dropped past 5. (Run in webkit + chromium.)
+    - **P. Open card is near-fullscreen + big readable font (CEO 2026-06-29, primary surface; §7.0/§7.4):**
+      open a card by a REAL row CLICK and assert (a) the open `#modal` width ≥ ~88% of the viewport AND
+      (b) its height ≥ ~88% of the viewport (near-fullscreen, not a small centered box); (c) the message
+      `.ev-text` computed `font-size ≈ 18px` (the bumped value); (d) the existing fixes still hold — `body`
+      is `overflow:hidden` (scroll containment) and the thread opens scrolled to the newest comment. FAIL
+      if the modal occupies a small share of the viewport in either dimension or the font is back at ~14.5px.
+      (Run in webkit + chromium.)
     Any dead control, console error, failed click-through, 404 on a clicked link, or missing rendered
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
