@@ -1463,6 +1463,21 @@ background/detach it or park on a wakeup (§12 Step 8 HARD rule, B2). `SEED_RESU
 only after the agent has, in that same turn, observed `main:Boss` `alive` in `/agents` AND Verify
 exit 0.**
 
+> 🔴 **H-DONE — NO FALSE GREEN (2026-07-02 rehearsal).** `SEED_RESULT=DONE` is **FORBIDDEN** unless
+> `## Verify` exited **0** with **every** gate green. A `DONE` emitted while any gate is red — or
+> emitted without Verify having actually run — is a **FALSE GREEN: the single most dangerous
+> outcome** (a red result wearing a green label; a caller trusts it and ships a broken node). The
+> self-report is NEVER the truth — the Verify **exit code** is. Concretely: run Verify, capture its
+> exit code, and gate the print on it (`verify … && echo SEED_RESULT=DONE || echo
+> "BLOCKED_REASON=verify_failed"`). Never print `DONE` first "and then verify," never print it from
+> a turn that didn't run Verify to exit 0. (A caller/driver must likewise INDEPENDENTLY re-run the
+> gates and never trust a bare `DONE` marker — Rule 15.)
+> 🔴 **H2 — PERSIST THE VERIFY HARNESS ON DISK (2026-07-02 rehearsal).** `## Verify` MUST be written
+> to disk as a runnable script at **`$INSTALL_DIR/verify/verify.sh`** (self-contained, exit code =
+> truth), not merely executed inline and discarded. A hydrate that reaches `DONE` but leaves no
+> `verify/` on the node cannot be **independently re-verified** (Rule 15 — the judge must re-run, not
+> trust the builder). Gate: after Steps, `test -x $INSTALL_DIR/verify/verify.sh` and it re-runs green.
+
 > **CANONICAL ACCEPTANCE = a SINGLE STANDALONE node with NOTHING pre-existing.** The real test is
 > one fresh host, `UPSTREAM_QUEUE_URL` UNSET, no hub/fleet anywhere, reaching exit 0 on J1–J11 +
 > J14–J44 (its own inner `:9900` is the central + HUD). **Verify must NOT depend on any
