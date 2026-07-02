@@ -1940,11 +1940,22 @@ exit 0.**
     pass):** (LAYER a) `GET /clients` (or the heartbeat record) shows this node's `attach_base` =
     `http://<tailnet-100.x>:<ttyd>` derived from `tailscale ip -4` — **NOT `127.0.0.1`, NOT empty when
     a tailnet IP exists, NOT gated on `TTYD_PUBLIC_URL`** (assert it's correct with `TTYD_PUBLIC_URL`
-    UNSET); (LAYER b) `GET /agents` returns each live agent with `attach_base` joined + a non-empty
-    `attach_url = "<attach_base>/?arg=-t&arg=<target>"` carrying ZERO `127.0.0.1` literals; (LAYER c)
-    the served `dashboard.html` ATTACH href contains zero `127.0.0.1` and resolves to the client host
-    (above). Any single layer emitting/falling back to `127.0.0.1` = FAIL, even if another layer is
-    correct (the bug was the COLLAPSE of all three).
+    UNSET); (LAYER b) `GET /agents` returns each live agent with `attach_base` **joined from the
+    OWNING CLIENT** (never read off the agent record, never a `BIND`/server-default) + a non-empty
+    `attach_url = "<attach_base>/?arg=-t&arg=<target>"` carrying ZERO non-routable literals
+    (`127.0.0.1` **or `0.0.0.0` or `localhost`**) — empty base ⇒ empty `attach_url`, NEVER a
+    substituted default; (LAYER c) the served `dashboard.html` ATTACH href contains zero non-routable
+    hosts (`127.0.0.1`/`0.0.0.0`/`localhost`) and resolves to the client host (above). Any single
+    layer emitting/falling back to `127.0.0.1` **or `0.0.0.0`/`localhost`** = FAIL, even if another
+    layer is correct (the bug was the COLLAPSE of all three).
+    🔴 **DRIFT GUARD (new, CEO 2026-07-02 — the assertion that catches a live install drifting behind
+    this seed).** `GET /agents` → for EVERY registered agent row, assert its `attach_base` host is
+    **NOT** in `{0.0.0.0, 127.0.0.1, localhost, ::}`. A healthy fleet has every cross-node agent
+    advertising a real tailnet `attach_base`; a single non-routable host = FAIL/flag. This is what
+    would have caught the 2026-07-02 incident **immediately**: the live queue-server had drifted behind
+    this seed and silently shipped `http://0.0.0.0:7681` on all 26 agents, while J47-as-written only
+    scanned for `127.0.0.1` (so `0.0.0.0` slipped through). The rule already existed (LAYER b); what
+    was missing was DRIFT DETECTION — this guard closes it.
 48. **BOSS ACTS ON MESSAGE #1 WITH ZERO RAMP-UP (§8 doctrine quickstart, CEO 2026-06-24).** Two
     checks: (STATIC) the generated `boss-CLAUDE.md` contains the front-loaded operational quickstart —
     the `mp` cheat-sheet (`send`/`peek`/`spawn`/`answer`/`revive` with syntax), the message-flow
