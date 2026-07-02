@@ -480,11 +480,26 @@ one command; set destroy-unattached only after it's attached. The clickable row'
 </dev/null &`, write a pidfile, and a reinstall stops the prior by pidfile then restarts — never
 leave a duplicate. A self-install must not kill the very channel that is driving it: stop a
 prior daemon only immediately before relaunching it (graceful in-place handoff), not pre-emptively.
+🔴 **H-STABLE — the substrate must HOLD its ready state, not just reach it (2026-07-02 rehearsal).**
+Observed drift: a hydrated node passed at completion but at +60min idle had **3× duplicate of every
+daemon** (a supervisor re-spawning without a check) and the Boss+agents had **fallen out of `/agents`**.
+HARD RULES: (1) every supervisor/launcher is **CHECK-BEFORE-SPAWN** — pgrep/pidfile FIRST; if the daemon
+is already alive it spawns **NOTHING** (never a 2nd/3rd instance). Steady-state invariant: `pgrep -fc`
+for each daemon == **1**. (2) If the hydrating agent's harness reaps detached process groups between
+tool calls (a real container quirk seen in the field), the answer is a **SINGLE persistent supervisor**
+(one pidfile) that owns + respawns all daemons — NOT re-launching daemons per tool call (that over-spawns).
+Start the supervisor once (`setsid`, pidfile-guarded, `nohup`), and it — not the install shell — keeps
+the daemons up for the node's whole life. Re-running the launcher must be a no-op when the supervisor is
+already up.
 
 **5.9 Heartbeat-based liveness + self-healing registry + STALE-CLIENT EXPIRY.** queue-server reaps
 an agent whose host has been silent `QUEUE_DEAD_AFTER` (≈4 missed heartbeats); clients re-announce
 their live agents every heartbeat so a server restart / false-prune repopulates within one cycle.
-No zombie "alive" agents after a host dies. **Likewise `/clients` itself EXPIRES stale entries
+No zombie "alive" agents after a host dies. 🔴 **The BOSS (`main:Boss`) MUST be in the re-announced set
+so it PERSISTS in `/agents` indefinitely (2026-07-02 rehearsal: the Boss + agents fell out of `/agents`
+at +60min idle and did NOT self-heal).** The queue-client's durable agents list MUST include the Boss
+(the supervisor registers it into the client's roster, not only via a one-shot `mp spawn`), so every
+heartbeat re-announces it — a Boss that drops out of `/agents` while its tmux window is alive is a FAIL. **Likewise `/clients` itself EXPIRES stale entries
 (folded 2026-06-17):** a client whose `last_seen` is older than the TTL (≈3–5 heartbeat intervals)
 **drops off `/clients`** — so a node that registered (e.g. `hydrating`) and then died, or any probe
 that stopped heartbeating, does NOT linger forever as a dead phantom on the grid. The grid reflects
@@ -1502,6 +1517,13 @@ exit 0.**
    Boss's roster summary on its next idle turn, so a doctrine summary captured at onboarding can be
    clobbered to a generic line — persist the onboarding summary so it survives later Stop-hook
    writes (don't assert a freshly-spawned Boss to mask this).
+2b. 🔴 **STEADY-STATE HOLD (H-STABLE, 2026-07-02).** Reaching ready is NOT enough — the node must
+   HOLD it. After first-ready, WAIT and re-assert at **+10 and +30 min** (idle, no driver poking it):
+   `:9900/health` still 200, **`main:Boss` + agents STILL in `/agents`** (registration persisted, not
+   aged out), `:9933/`+`ttyd` still 200, AND **exactly ONE instance of each daemon** (`pgrep -fc
+   queue-server.py|todo-server.py|queue-client.py|boss-supervisor` each == 1 — no 3× over-spawn). A node
+   that hits ready then DRIFTS (agents fall out of `/agents`, or duplicate daemons accumulate) is NOT a
+   working install = FAIL. (This is the gate the one-instant Verify missed.)
 3. **Board → Boss ping.** Add a **non-test** task via `POST /todo/update {op:add,text:…}` while
    the Boss is idle. *Expect:* it lands on `/todo/board` AND the **Boss pane receives the
    `[todo] … <taskId> …` ping** within ~30s (key off pane-delivery; a busy Boss may rc=1 yet the
