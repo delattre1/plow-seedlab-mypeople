@@ -280,6 +280,16 @@ answer, revive`.
 SessionEnd` to the queue/status files. The **Stop hook** writes the agent's status+summary and, if the
 agent has a `boss_id`, routes an `[AGENT NOTIFICATION] <agent_id> finished: <summary>` line into
 the **Boss's tmux pane** (`mc-<boss-sess>:<boss-tab>`). This is the JOIN/notification proof.
+🔴 **The Stop hook (and the PreToolUse question hook) delivers by `POST /task/submit` of a
+`{type:"send", target_agent:<boss>, payload:{message:…}}` task — the submit MUST carry `type:"send"`
+(the §4.5 dispatch verb), NOT only `action` (folded 2026-07-03, CEO drift — this was the live
+substrate-notification bug).** The V2 queue-server stores the verb from `type` and the queue-client
+dispatches on `type`; a submit that carries only `action:"send"` is still accepted (**200 + a
+`task_id`**) but is stored with `type=null`, so the client resolves no handler and **silently drops
+it — the Boss is never notified**. `action` is a legacy alias the client tolerates on the DISPATCH
+side, but the SUBMIT side (this hook) must emit `type` or the notification vanishes with no error.
+A golden baked from a seed that emitted `action`-only shipped exactly this drift; every substrate
+agent finished invisibly (§15 gate 3b guards it end-to-end).
 **Status state machine — MUST emit `working`, not only `idle` (folded 2026-06-25, CEO bug).** The
 status file's `status` field is what the HUD/Terminal-Wall badge reads, so it MUST transition through
 the full lifecycle: `SessionStart→"starting"`, **`UserPromptSubmit→"working"`** (a submitted prompt =
@@ -1544,6 +1554,19 @@ exit 0.**
    the Boss is idle. *Expect:* it lands on `/todo/board` AND the **Boss pane receives the
    `[todo] … <taskId> …` ping** within ~30s (key off pane-delivery; a busy Boss may rc=1 yet the
    ping still pastes). An EMPTY Boss pane = the §5.1 `mp`-not-on-PATH regression ⇒ FAIL.
+3b. 🔴 **Agent completion → Boss NOTIFICATION (drift-guard, folded 2026-07-03 CEO — the live
+   substrate bug the one-shot gates MISSED).** END-TO-END, exercising the REAL Stop hook: spawn a
+   throwaway agent with `boss_id=<this node's Boss>` (`mp spawn … --boss <BOSS_AGENT>`), send it a
+   one-line prompt, and let it finish a turn. *Expect:* within ~30s the **Boss pane receives
+   `[AGENT NOTIFICATION] <agent_id> finished:`** (key off pane delivery, exactly like J3). This is
+   the §4 Stop-hook JOIN proof asserted for real — NOT by reading the hook source, but by driving a
+   spawn→Stop→deliver round-trip. **Why this gate exists:** the emit-event hook fired and `POST
+   /task/submit` returned 200, but it submitted `action:"send"` WITHOUT `type:"send"`, so the V2
+   server stored `type=null` and the client silently dropped the send — the Boss was never told an
+   agent finished, and no earlier gate caught it because none drove the completion→notification path.
+   The gate MUST FAIL if the notification does not reach the pane, even though the hook "ran" and the
+   submit returned a `task_id`. (A from-memory build that emits `action`-only, or a golden baked from
+   one, trips this gate.)
 4. **Supervisor resurrection.** The supervisor daemon is alive; kill `mc-main:Boss`; *Expect:* it
    **auto-respawns** and reappears `alive` in `/agents` within the supervisor cycle (no human).
 5. **TODO add-task round-trips.** A task created via the API is read back on `/todo/board` and
