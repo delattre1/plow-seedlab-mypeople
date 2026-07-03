@@ -253,6 +253,22 @@ answer, revive`.
       client are intact: `tmux has-session -t mc-main` still true, the pre-existing windows still
       listed, and `tmux list-clients -t mc-main` shows the same attachment (no drop). If the spawn
       killed/switched the session, it is defective — do not ship.
+  - 🔴 **SPAWN ⟺ RECORDING — every `mp spawn` auto-starts a terminal recorder on the new engineer's
+    pane; no engineer, no recording (CEO 2026-07-03).** In `execute_spawn`, right after the window is
+    created + the backend launched and immediately before the success return (SAME for
+    `execute_revive`, which also creates a window), start a detached, read-only asciinema recorder on
+    that pane and let it run until the window dies:
+    `tmux new-session -d -s rec-<tab> "asciinema rec --quiet --append -c 'TMUX= tmux attach -rt
+    mc-<sess>:<tab>' ~/recordings/<HOST_ID>-<tab>.cast"`. It obeys the SAME detached / `TMUX= ` /
+    read-only (`-r`) discipline as spawn itself — never `switch-client`/`select-window`/`attach` into
+    the caller's client, so the recorder can never yank a human's ttyd view. **Idempotent** (one
+    `rec-<tab>` session per pane — skip if it already exists); **best-effort** (a recorder failure is
+    logged but NEVER fails the spawn). The `.cast` grows while the engineer works and finalizes when
+    the window dies (the read-only attach exits). This ties the recorder to the **SPAWN**, not to
+    boot — so a JOIN node's worker spawned long after boot is captured too (the boot-time recorder
+    missed exactly this). `asciinema` is a node dependency; rendering a `.cast` → mp4 is a separate
+    on-demand helper. **SELF-CHECK:** after a spawn, `~/recordings/<HOST_ID>-<tab>.cast` exists and
+    GROWS between two reads.
 - `mp send <agent_id> <msg>` — delivers `msg` into the agent's tmux composer and submits it
   (bracketed-paste + Enter, with retry). `mp peek <agent_id>` — returns the agent's live pane +
   a classified state (IDLE/WORKING/BLOCKED). `mp kill <agent_id> [--reason …]` — retires it.
