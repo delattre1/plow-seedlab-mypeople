@@ -196,6 +196,18 @@ requires header `X-Queue-Secret: <QUEUE_SECRET>`; JSON bodies):
   a SINGLE task + keyed on `action` silently never claimed queue-routed spawns against the V2 server —
   a golden image baked from that older seed could not be driven over the central queue.) `GET /task/<id>`
   → task status+result (submitters wait on this).
+  - 🔴 **HARD CONTRACT — `execute_spawn` MUST consume `payload.model` (CEO directive 2026-07-04).**
+    When the queue-client dispatches a `spawn` task it reads `payload.model` and injects `--model <id>`
+    into the `claude` launch command EXACTLY as the local `mp spawn` does — defaulting to
+    `claude-opus-4-8` for a non-`--master` engineer when the key is absent (old senders that predate the
+    field), and injecting NO `--model` when `is_master` (Boss keeps the system default) or `model` is
+    empty. The sender (`mp`'s `_remote_payload`) already puts `model` in the task payload; a receiver
+    whose `execute_spawn` ignores it silently drops the CEO's model pin so the cross-host engineer
+    inherits THAT host's system default — the same class of "sender fixed, receiver forgot" regression
+    the `type`/array contract above guards, one layer deeper. Keep the model default in a single
+    `DEFAULT_ENG_MODEL` constant shared with `mp` so the two sides never drift, and pin it in BOTH the
+    launch command and the `spawn_cmd` audit string the roster records (so `/agents` shows the exact
+    per-engineer model regardless of which host launched it).
 - `GET /roster` → JSON array (retired/known engineers, for the HUD revive table).
 - `GET /dashboard` → the HUD HTML (**public**). **The page carries NO secret (§5.12).** Serving it
   mints a browser session (httpOnly cookie); its same-origin JS calls the gated endpoints with the
