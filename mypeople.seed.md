@@ -203,10 +203,20 @@ requires header `X-Queue-Secret: <QUEUE_SECRET>`; JSON bodies):
 
 **`mp` CLI** (in `$INSTALL_DIR/bin/mp`, on `PATH`): verbs `status, spawn, send, peek, kill,
 answer, revive`.
-- `mp spawn <agent_id> [--backend claude] [--cwd PATH] [--boss <agent_id>] [--master]` — creates
+- `mp spawn <agent_id> [--backend claude] [--cwd PATH] [--boss <agent_id>] [--master] [--model <id>]` — creates
   the tmux window `mc-<sess>:<tab>`, launches the backend, registers the agent. `--master` also
   sends the Boss its onboarding prompt (read `boss-CLAUDE.md`). **Idempotent:** spawning an
   agent_id whose window already exists reuses it, never double-launches.
+  - 🔴 **EXPLICIT MODEL PINNING (CEO directive 2026-07-04): every ENGINEER spawn (non `--master`)
+    launches `claude` with `--model claude-opus-4-8` passed EXPLICITLY — never silently inherited
+    from `~/.claude/settings.json`.** The `--model` flag MUST appear in BOTH `claude` invocations of
+    the launch fallback chain AND in the `spawn_cmd` audit string recorded in the roster (so the
+    CEO can see the exact model per engineer in `/agents`). Per-spawn override:
+    `mp spawn <aid> --model <other-id>` wins over the default. The Boss (`--master`) keeps the
+    system default (no `--model` injected) unless `--model` is passed explicitly — the directive
+    was scoped to spawned engineers. Queue-routed remote spawns carry `model` in the task payload
+    with the same default logic, and the target host's `execute_spawn` MUST include it in its
+    launch command likewise — the flag must survive cross-host routing.
   - 🔴 **The tmux window MUST be NAMED exactly `<tab>` and that name MUST STICK** — the attach URL
     the HUD/TODO build is `…/?arg=-t&arg=mc-<sess>:<tab>`, i.e. `tmux attach -t mc-<sess>:<tab>`
     resolves the window **by name**. Two ways this silently breaks (both are PRODUCT bugs, not
