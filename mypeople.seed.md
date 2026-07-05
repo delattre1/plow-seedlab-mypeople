@@ -229,6 +229,34 @@ answer, revive`.
     was scoped to spawned engineers. Queue-routed remote spawns carry `model` in the task payload
     with the same default logic, and the target host's `execute_spawn` MUST include it in its
     launch command likewise — the flag must survive cross-host routing.
+  - 🔴 **SPAWN ENV-EXPORT CONTRACT — every agent launch MUST export the runtime env the lifecycle
+    hooks read, or notifications silently vanish (folded 2026-07-05, CEO card a3a446afd8369654 — the
+    live substrate bug a codex rewrite of spawn re-introduced).** The `emit-event` Stop/PreToolUse
+    hook GATES on `AGENT_ID` (`[ -z "$AGENT_ID" ] && exit 0`, its FIRST line) and delivers the boss
+    notification with `curl "$QUEUE_URL/task/submit"` authenticated by `$QUEUE_SECRET`. Therefore the
+    `mp spawn` launch command (AND the cross-host `execute_spawn`) MUST prepend, into the SAME shell
+    that execs the backend, an export of **ALL** of:
+    - `AGENT_ID` = the agent's **OWN** full id `<host>/<sess>:<tab>` (NOT the boss's). This is both
+      the hook's gate AND what the agent expands as `--boss $AGENT_ID` when it spawns its own
+      children — an empty `AGENT_ID` is the taproot of the whole failure (Boss spawns an engineer
+      with an empty boss ⇒ dropped Stop notification).
+    - `QUEUE_URL` and `QUEUE_SECRET` — the hook has no other source for where to POST or how to auth;
+      absent, the `curl` fails silently (`|| true`).
+    - `HOST_ID`, `INSTALL_DIR` — the hook parses `AGENT_ID`/writes status files under `$INSTALL_DIR`.
+    - `BOSS_ID` — the boss to notify, per the ownership rule: `export BOSS_ID=<boss>` for a normal
+      engineer, but a **TOP-LEVEL** agent (`--master` Boss, or a Watchdog) MUST `unset BOSS_ID` so an
+      inherited/leaked value can't misroute its own Stop notification. Omitting `--boss` is VALID (a
+      top-level agent with no boss — no notification is routed, which is correct).
+    - 🔴 **Empty `--boss` is a HARD ERROR, not a silent accept.** `mp spawn` MUST distinguish
+      *omitted* `--boss` (valid top-level) from `--boss ''` / `--boss` with a whitespace-only value
+      (ALWAYS a bug — an expansion of an unset `$AGENT_ID`). The empty-string case MUST FAIL LOUDLY
+      (non-zero exit, explanatory message) on BOTH the local-tmux path and the queue-routed remote
+      path, refusing to create an agent whose boss address resolves to `<host>/` (not a real pane).
+      Never `full_aid('')`-into-existence a mis-wired agent.
+    Values MUST be shell-quoted. This block is not optional polish: a spawn that exports only the
+    `MP_*` convenience vars but drops `AGENT_ID`/`QUEUE_URL`/`QUEUE_SECRET` produces agents whose
+    every Stop/question notification is discarded at the hook's first line, with NO error anywhere —
+    exactly the regression this contract exists to prevent. Gate §15-3b (below) asserts it end-to-end.
   - 🔴 **The tmux window MUST be NAMED exactly `<tab>` and that name MUST STICK** — the attach URL
     the HUD/TODO build is `…/?arg=-t&arg=mc-<sess>:<tab>`, i.e. `tmux attach -t mc-<sess>:<tab>`
     resolves the window **by name**. Two ways this silently breaks (both are PRODUCT bugs, not
@@ -1589,6 +1617,23 @@ exit 0.**
    The gate MUST FAIL if the notification does not reach the pane, even though the hook "ran" and the
    submit returned a `task_id`. (A from-memory build that emits `action`-only, or a golden baked from
    one, trips this gate.)
+   **PLUS the SPAWN ENV-EXPORT sub-assertion (folded 2026-07-05, CEO card a3a446afd8369654 — a
+   DIFFERENT root cause with the SAME symptom: the notification silently vanishes).** Before/besides
+   the pane check, assert the spawned throwaway's shell actually received the env the hook gates on:
+   `mp spawn`, then read the new agent's environment (e.g. `send` it `printf 'ENVCHK
+   AGENT_ID=[%s] BOSS_ID=[%s] QUEUE_URL=[%s]\n' "$AGENT_ID" "$BOSS_ID" "$QUEUE_URL"` and capture the
+   pane, or inspect `/proc/<pane_pid>/environ`). *Expect:* **`AGENT_ID` is NON-EMPTY and equals the
+   agent's own id**, `QUEUE_URL`/`QUEUE_SECRET` are set, and `BOSS_ID` equals the `--boss` value
+   passed. **Why this sub-gate exists:** a codex rewrite of `mp spawn` dropped the env-export block
+   (kept only the `MP_*` convenience vars), so every agent launched with an EMPTY `AGENT_ID`; the
+   emit-event hook then exited at its FIRST line (`[ -z "$AGENT_ID" ] && exit 0`) and NO notification
+   was ever POSTed — the `type:"send"` fix above could not save it because the hook never ran to the
+   submit. The end-to-end pane check catches this too, but the env sub-assertion pinpoints the cause
+   (missing export vs. broken submit vs. broken delivery) so a regression is diagnosed, not just
+   observed. **Also assert the empty-`--boss` guard:** `mp spawn <aid> --boss ''` MUST exit non-zero
+   with an explanatory error (an empty boss is always an unset-`$AGENT_ID` bug), while `mp spawn
+   <aid>` with `--boss` OMITTED MUST succeed (valid top-level agent). A build that silently accepts
+   `--boss ''` — creating an agent whose boss resolves to `<host>/` — trips this gate.
 4. **Supervisor resurrection.** The supervisor daemon is alive; kill `mc-main:Boss`; *Expect:* it
    **auto-respawns** and reappears `alive` in `/agents` within the supervisor cycle (no human).
 5. **TODO add-task round-trips.** A task created via the API is read back on `/todo/board` and
