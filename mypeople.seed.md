@@ -1269,8 +1269,7 @@ single source.
 
 **8.5.3 HARD RULES — SERVER-ENFORCED in `todo-server`, BOUND TO THE AUTHENTICATED CALLER (absolute;
 the prompt can be jailbroken, the server cannot).**
-🔴 **The server NEVER trusts body-supplied `by`/`actor` for the hard-rule boundary (knightwatch
-2026-06-21 — body identity is forgeable by anyone holding a secret).** Instead the Nightwatch authenticates
+🔴 **The server NEVER trusts body-supplied `by`/`actor` for the hard-rule boundary (2026-06-21 — body identity is forgeable by anyone holding a secret).** Instead the Nightwatch authenticates
 with its **OWN dedicated credential `NIGHTWATCH_TOKEN`** (`queue.env`, distinct from `QUEUE_SECRET`); the
 server **derives the caller identity FROM the authenticated credential** (`NIGHTWATCH_TOKEN` ⇒
 caller=`NIGHTWATCH_AGENT`) and applies the Nightwatch hard rules to that **authenticated identity**, regardless of
@@ -1313,14 +1312,13 @@ sender number); the Nightwatch wires its two functions to that gateway.**
   webhook` subscription / hook) to POST each inbound CEO message to **`POST /nightwatch/inbound {from,
   text}`** on `todo-server` **at the Nightwatch node's TAILNET address `http://<node-100.x>:9933/nightwatch/inbound`
   (the Hermes host and the Nightwatch node are DIFFERENT machines — never `127.0.0.1`/LAN, §5.2/Option A)**.
-  🔴 **AUTH FIRST, then trust `from` (security — knightwatch 2026-06-21): `/nightwatch/inbound` MUST
+  🔴 **AUTH FIRST, then trust `from` (security — 2026-06-21): `/nightwatch/inbound` MUST
   require the **`X-Queue-Secret`** machine credential (the SAME seam every other gated route uses —
   no separate secret) and REJECT (401) BEFORE it reads/uses `from`.** Only an authenticated caller's
   `from` is honored; the caller-supplied `from` is NEVER trusted on its own. On an authenticated
   request the server enqueues the event to the Nightwatch queue AND — if `from` is the CEO (`CEO_WHATSAPP`)
   and `text` matches "Nightwatch, create …" — mints the one-shot delegation token (8.5.3 #2). 🔴 **The
-  minted token MUST travel WITH the Nightwatch QUEUE EVENT, not only in the webhook response (knightwatch
-  2026-06-21): the webhook response goes back to Hermes (the bridge), which is NOT the Nightwatch — so the
+  minted token MUST travel WITH the Nightwatch QUEUE EVENT, not only in the webhook response (2026-06-21): the webhook response goes back to Hermes (the bridge), which is NOT the Nightwatch — so the
   real Nightwatch only ever learns the token from its queue.** The `[nightwatch] …` event the server `mp send`s to
   `NIGHTWATCH_AGENT` for a delegated create MUST embed the token (e.g. `[nightwatch] inbound CEO: create "<X>"
   token=<minted>`), and the Nightwatch presents THAT queued token on its `op:add` (8.5.3 #2). **An
@@ -1334,8 +1332,7 @@ sender number); the Nightwatch wires its two functions to that gateway.**
   configured **`HERMES_SEND_URL`** (gitignored `queue.env`) = the live bridge's **tailnet** endpoint
   `http://<hermes-tailnet-ip>:3000/send` — **NEVER `127.0.0.1`/`localhost`** (the Mac's local Hermes
   is dead) and **NEVER a LAN `192.168.x` IP** (the CEO is often off-LAN; only the tailnet is
-  reachable, same rule as `attach_base` §5.2). 🔴 **NO SHELL — argv only (security — knightwatch
-  2026-06-21): the endpoint MUST invoke the transport with `subprocess.run([…, text], shell=False)`
+  reachable, same rule as `attach_base` §5.2). 🔴 **NO SHELL — argv only (security — 2026-06-21): the endpoint MUST invoke the transport with `subprocess.run([…, text], shell=False)`
   (an explicit argv list), NEVER a shell string with the caller's `text` interpolated.** Concretely
   it posts the bridge contract `{"chatId":"<CEO digits>@s.whatsapp.net","message":text}` to
   `HERMES_SEND_URL` (e.g. `subprocess.run(["curl","-s","-H","Content-Type:
@@ -1357,7 +1354,7 @@ reads the task/context → drafts the reply/relay/decision → sends it to the C
 - **REJECT** (CEO replies no/reject [reason]) → Nightwatch **drops** the draft, logs the reason, takes no
   card action.
 
-**8.5.6 Autonomy — L0 only, for now (pre-PMF; knightwatch 2026-06-21).** The Nightwatch runs at **L0:
+**8.5.6 Autonomy — L0 only, for now (pre-PMF; 2026-06-21).** The Nightwatch runs at **L0:
 approve everything** — every draft goes to the CEO via 8.5.5 before any post. No L1/L2 ramp and no
 `CTO_AUTONOMY` knob yet; the higher tiers are deferred until trust + usage justify them (we cut LOC
 rather than ship unused config). The two hard rules (8.5.3) always hold.
@@ -1414,7 +1411,7 @@ A generated build MAY stub these (e.g. `/todo/wa` returns 501) without failing a
 | `UPSTREAM_QUEUE_URL` + `UPSTREAM_QUEUE_SECRET` | **no (optional — FLEET mode only)** | — | env / `queue.env` | **STANDALONE is the default product (§1): a fresh install with these UNSET is a complete, self-sufficient node — its OWN inner `:9900` is its central + HUD.** Set them ONLY to JOIN an existing fleet central; then the OUTER uplink registers the node there (§5.11) and J12/J13 apply. **A real user's fresh-from-zero install has NO upstream** — never assume one pre-exists. |
 | `NODE_PURPOSE` / `NODE_TYPE` / `NODE_RECORDING_URL` | no | `mypeople` / `system-agent` / `` | env | The node's grid grouping label, type, and seedrec link (§4, §7.1). |
 | `UPLINK_DIR` | no | `$HOME/mypeople-uplink` | — | Own dir for the OUTER fleet-uplink (§5.11) — isolated from `$INSTALL_DIR` so the inner install can't touch it. |
-| `CEO_WHATSAPP` (§8.5) | no | — (operator-supplied) | **gitignored `queue.env` / env ONLY — NEVER committed, NEVER defaulted in this seed** | The CEO's WhatsApp number — the Nightwatch's only approve/edit/reject peer; the only `from` (once 8.5.4-authenticated) that mints delegation tokens. PII: it must never appear in the seed, code, or git history (knightwatch 2026-06-21). |
+| `CEO_WHATSAPP` (§8.5) | no | — (operator-supplied) | **gitignored `queue.env` / env ONLY — NEVER committed, NEVER defaulted in this seed** | The CEO's WhatsApp number — the Nightwatch's only approve/edit/reject peer; the only `from` (once 8.5.4-authenticated) that mints delegation tokens. PII: it must never appear in the seed, code, or git history (2026-06-21). |
 | `HERMES_SEND_URL` (§8.5.4) | no | — (unset → outbound stubs 501) | gitignored `queue.env` | The live Hermes bridge send endpoint. 🔴 **MUST be the Hermes host's TAILNET address `http://<hermes-100.x-ip>:3000/send` — NEVER `127.0.0.1`/`localhost` (local Hermes is dead) and NEVER a LAN `192.168.x` IP (CEO off-LAN). Option A: the Nightwatch reaches the remote Hermes over the tailnet (§5.2).** |
 | `NIGHTWATCH_AGENT` (§8.5) | no | `<HOST_ID>/nightwatch:Nightwatch` | — | The Nightwatch agent_id the server enforces the hard rules against (never-done, create-only-on-token). |
 | `NIGHTWATCH_TOKEN` (§8.5.3) | no | auto-generate | gitignored `queue.env` | The Nightwatch's OWN auth credential (distinct from `QUEUE_SECRET`). The server **derives caller=`NIGHTWATCH_AGENT` from this token** and applies the hard rules to the authenticated identity — body `by`/`actor` is never trusted; a Nightwatch-authed write claiming a different author is `nightwatch_cannot_spoof`. |
@@ -1945,14 +1942,14 @@ exit 0.**
     {`nightwatch`,`ceo-equivalent`,`approve`,`whatsapp`,`never-done`} (like J2c). A Nightwatch that is
     a master, has no folder/skill, or a 0-keyword summary = FAIL.
 40. **Nightwatch NEVER posts as the CEO — IDENTITY BOUND TO AUTH, not the body (§8.5.1/§8.5.3, CEO
-    2026-06-21 + knightwatch).** A request **authenticated as the Nightwatch** (header `NIGHTWATCH_TOKEN`) whose body
+    2026-06-21).** A request **authenticated as the Nightwatch** (header `NIGHTWATCH_TOKEN`) whose body
     claims `by`/`actor` = `"CEO"` (or anything ≠ `NIGHTWATCH_AGENT`) — on `/todo/comment`, `/todo/status`, or
     `/todo/update` — is **REJECTED `{ok:false, error:"nightwatch_cannot_spoof"}`** BEFORE any other check; the
     board is unchanged. A legit Nightwatch write (`by=<host>/nightwatch:Nightwatch`) posts fine. 🔴 The server must derive
     the caller from `NIGHTWATCH_TOKEN`, NEVER trust body `by`/`actor` — a Nightwatch-authed caller that lands ANY
     write as `by:"CEO"` = FAIL (forgeable-identity bypass).
 41. **Nightwatch can NEVER mark done — CEO-only, bound to the authenticated caller (§8.5.3 #1, CEO
-    2026-06-21 + knightwatch).** With a task on the board, EACH of these from an **authenticated Nightwatch
+    2026-06-21).** With a task on the board, EACH of these from an **authenticated Nightwatch
     caller** (`NIGHTWATCH_TOKEN`) returns **`{ok:false, error:"nightwatch_cannot_done"}`** with `state` **unchanged**:
     `POST /todo/status {state:"done"}`; `POST /todo/update {op:set,state:"done"}`; `set{done:true}`;
     `set{workToDone:true}`. 🔴 **SPOOF CANNOT BYPASS:** the same calls from the Nightwatch caller but with
@@ -1961,7 +1958,7 @@ exit 0.**
     WITHOUT `NIGHTWATCH_TOKEN`) succeed (proving it is Nightwatch-specific, not a global lock). Any Nightwatch done-transition
     that lands — directly or by claiming `by:"CEO"` — = FAIL.
 42. **Nightwatch create-task is gated on a one-shot CEO token, minted ONLY by AUTHENTICATED inbound and
-    delivered VIA THE QUEUE (§8.5.3 #2 / §8.5.4, CEO 2026-06-21 + knightwatch).** (a) `POST
+    delivered VIA THE QUEUE (§8.5.3 #2 / §8.5.4, CEO 2026-06-21).** (a) `POST
     /todo/update {op:add}` from an **authenticated Nightwatch caller** (`NIGHTWATCH_TOKEN`) with NO token →
     **`{ok:false, error:"nightwatch_cannot_create"}`**, board unchanged; the SAME `add` claiming body
     `by:"CEO"` to dodge the gate → **`nightwatch_cannot_spoof`** (no task created). (b) Feed an **authenticated** inbound CEO
@@ -1990,7 +1987,7 @@ exit 0.**
     MUST still pass unchanged. Boss ping regressed, no Nightwatch fanout on a real event, or a Nightwatch-self /
     `{test}` event that DOES fan out = FAIL.
 44. **Hermes bridge = two thin functions, no logic, REUSES existing Hermes + is SECURE (§8.5.4,
-    CEO 2026-06-21 + knightwatch).** (a) **INBOUND AUTH FIRST:** an **authenticated** `POST
+    CEO 2026-06-21).** (a) **INBOUND AUTH FIRST:** an **authenticated** `POST
     /nightwatch/inbound` (header `X-Queue-Secret`, `{from, text}`) enqueues the event to the Nightwatch queue (and
     mints + **enqueues** the token per J42); an **unauthenticated** `POST /nightwatch/inbound` → **401
     BEFORE `from` is read/used** (the server must not branch on `from` for an unauthed request).
