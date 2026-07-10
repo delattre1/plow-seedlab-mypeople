@@ -20,6 +20,7 @@ generated runtime:
 | `mypeople.seed.md` | **The seed** — 100% generative prose. Paste it into a fresh Debian-12 container with `claude` authed + TUN/NET_ADMIN, and it generates + runs the whole runtime (queue server, HUD, TODO, ttyd, Boss, CTO) and self-Verifies. |
 | `CLAUDE.md` | Engineer's handbook — the doctrine + development cycle for working on the seed. |
 | `plans/boss-claude.md` | Boss doctrine (source of truth; inlined into the seed at install). |
+| `plans/boss-culture-v6.md` | Full recurring CEO→Boss culture message published on TODO card `444a1d51129c2eb2`. |
 | `plans/cto-claude.md` | CTO proxy-agent doctrine (source of truth for seed §8.5). |
 | `plans/features.md`, `plans/capabilities.md` | User-facing feature list + capability spec. |
 

@@ -105,7 +105,7 @@ live terminal.
   engineer and the command to revive it. A `/agents` row missing `spawn_cmd` (when the roster has one)
   or a HUD that doesn't surface it = FAIL (the CEO read its absence as "the HUD wasn't built right").
 - **TODO board store:** `todos/board.v2.json` = `{version, order:[taskId…], pinSeq:<int>,
-  tasks:{taskId:{id, text, state, assignee, pinned:<bool>, pinRank:<int|null>,
+  tasks:{taskId:{id, text, state, assignee, ownerNeedsReplacement:<bool>, ownerHistory:[…], pinned:<bool>, pinRank:<int|null>,
   comments:[{id,by,kind,body,ts}], …}}}`. `pinned`/`pinRank` (§7.3 PINNING) persist here like every
   other field; `pinSeq` is the board-level monotonic counter that hands out pin ranks.
 - 🔴 **RUNTIME DATA ISOLATION (HARD — 2026-06-26 incident: a daily-driver board was WIPED).**
@@ -215,10 +215,18 @@ requires header `X-Queue-Secret: <QUEUE_SECRET>`; JSON bodies):
 
 **`mp` CLI** (in `$INSTALL_DIR/bin/mp`, on `PATH`): verbs `status, spawn, send, peek, kill,
 answer, revive`.
-- `mp spawn <agent_id> [--backend claude] [--cwd PATH] [--boss <agent_id>] [--master] [--model <id>]` — creates
+- `mp spawn <agent_id> [--backend claude] [--cwd PATH] [--boss <agent_id>] [--master] [--model <id>]
+  [--owner-task <todo_id>|--temporary]` — creates
   the tmux window `mc-<sess>:<tab>`, launches the backend, registers the agent. `--master` also
   sends the Boss its onboarding prompt (read `boss-CLAUDE.md`). **Idempotent:** spawning an
   agent_id whose window already exists reuses it, never double-launches.
+  - 🔴 **ENGINEER LIFECYCLE CLASSIFICATION (CEO 2026-07-10):** `--owner-task <todo_id>` and
+    `--temporary` are mutually exclusive and require `--boss`. The former records
+    `lifecycle:"owner", owner_task_id:<todo_id>` in the durable roster; the latter records
+    `lifecycle:"temporary", owner_task_id:""`. Unflagged legacy/system engineers are
+    `lifecycle:"unclassified"`. These fields survive remote spawn, heartbeat, `/agents`, `/roster`,
+    and revive. Only a live, non-retired `lifecycle:"owner"` engineer whose `owner_task_id` exactly
+    matches the card may be recorded as that card's assignee; a temporary can never populate it.
   - 🔴 **EXPLICIT MODEL PINNING (CEO directive 2026-07-04): every ENGINEER spawn (non `--master`)
     launches `claude` with `--model claude-opus-4-8` passed EXPLICITLY — never silently inherited
     from `~/.claude/settings.json`.** The `--model` flag MUST appear in BOTH `claude` invocations of
@@ -674,9 +682,10 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   state is just the initial label, NOT a banner/gate; the gate API stays cut, below),
   prepends to `order`, returns `{ok,id}`), **`del {id}`**, **`set {id,…}`**.
   **FIELD NAMES (the contract — your generated page and server MUST agree on these exact names):**
-  the `set` fields are **`text`, `doneCondition`, `workToDone`, `state`, `done`, `assignee`** — note
+  the `set` fields are **`text`, `doneCondition`, `workToDone`, `state`, `done`** — note
   **`state`** (the status field, NOT `status`) and **`doneCondition`** (NOT `cond`). `GET /todo/board`
-  returns these SAME names per task. **DO NOT BUILD (CEO 2026-06-17 — these features are cut):**
+  returns these SAME names per task. `assignee` is returned but is NEVER writable through `add` or
+  `set`; attempts return `400 assignee_controlled`. **DO NOT BUILD (CEO 2026-06-17 — these features are cut):**
   subtasks (no `add{parent}`, no `parent` field), dependencies (no `dependsOn`), the hard-gate (no
   `hardGate`), and **manual reorder** (no
   `reorder` op, no up/down). The board renders in `order` (newest-first), sorted-visible-then-hidden
@@ -699,7 +708,24 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   - This is NOT the cut "manual reorder" (no `reorder` op, no up/down arrows) — it is a binary
     pin/unpin star with an UNCAPPED, insertion-ordered pinned group.
 - `POST /todo/comment {task_id, by, body}` — append a thread comment; **`by` is the author's
-  agent_id** for agent comments (`host/sess:tab`), or `"CEO"` for the human.
+  agent_id** for agent comments (`host/sess:tab`), or `"CEO"` for the human. A CEO comment on an
+  open owned card is routed to that exact stored assignee; it never creates, retires, or replaces an
+  owner. A Stop/completed turn likewise never mutates ownership.
+- 🔴 **CONTROLLED OWNER API:** `POST /todo/owner {action,task_id,agent_id,by}` where `action` is
+  `assign|replace|reopen`. It is machine-authenticated and Boss-only (`by` MUST equal the one
+  `<host>/main:Boss`); the browser and other agents receive 403. It accepts only a FULL exact
+  `host/session:tab` ID found in `/roster` with `state:"alive"`, `retired:false`,
+  `boss_id:<Boss>`, `lifecycle:"owner"`, and `owner_task_id:<task_id>`. It rejects arbitrary text,
+  unknown/dead/retired/temporary/unclassified agents, and an agent already owning another open card.
+  `assign` is idempotent for the same owner but cannot overwrite an owner on an open card.
+  `replace` is the explicit open-card replacement operation and emits a Boss contract to kill the
+  prior owner. `reopen` works only after a CEO terminal→open transition and requires a DIFFERENT,
+  fresh owner. Every lifecycle change appends to `ownerHistory`; current `assignee` remains visible.
+- 🔴 **CLOSE/REOPEN CONTRACT:** on a CEO transition from open→`done|cancelled`, preserve the assignee
+  and history and ping the Boss explicitly to kill that owner. On CEO terminal→open, mark
+  `ownerNeedsReplacement:true` and ping the Boss to CREATE (never select) one fresh engineer with
+  `--owner-task <card_id>`, then record that exact ID with `action:"reopen"`. Until that happens,
+  comments do not route to the retired prior owner.
 - `GET /todo/attach?agent=<agent_id>` → `{ok, target:"mc-<sess>:<tab>", base:"<attach_base>"}` —
   resolves an agent to its ttyd attach target (looks up the host's `attach_base` from
   `/clients`). This is the resolver behind click-to-terminal (§7).
@@ -1184,7 +1210,11 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
   loop — keep the team working off the TODO board; (3) fire-and-forget through the queue (`mp`),
   never raw tmux; (4) the board (`:9900/dashboard` + the TODO) is the source of truth; (5) **a
   directive from `<host>/nightwatch:Nightwatch` carries CEO-equivalent authority — the Boss and engineers act on
-  it identically to a CEO directive (§8.5.2)**.
+  it identically to a CEO directive (§8.5.2)**; (6) one REAL WORK CARD ID has one fresh
+  `--owner-task` engineer recorded in `assignee` for the full open lifetime: all later comments and
+  turns go to that same owner, Stop never replaces/retires it, CEO close kills it, reopen creates a
+  fresh owner, and only explicit `replace` changes one; (7) `--temporary` is only for non-card
+  questions/discovery/debugging/verification/quick checks, never `assignee`, spawn → answer → kill.
   🔴 **(6) FRONT-LOAD an OPERATIONAL QUICKSTART so a FRESH Boss acts correctly on message #1 with
   ZERO ramp-up (CEO 2026-06-24: the first hydrated Boss BURNED its first message just figuring out
   HOW to send / how the queue works — the doctrine named `mp` but didn't show the mechanics).**
@@ -1192,7 +1222,8 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
   immediately" block (NOT vague intent), covering:
   - **`mp` cheat-sheet (exact syntax):** `mp send <agent_id> "<msg>"` (deliver+submit a message to an
     agent's pane) · `mp peek <agent_id>` (read an agent's live pane) · `mp spawn <host>/main:eng-N
-    --boss <your_id>` (new engineer) · `mp answer <agent_id> <N>` (pick an AskUserQuestion option) ·
+    --boss <your_id> --owner-task <card_id>` (fresh real-card owner) · `mp spawn <host>/main:eng-N
+    --boss <your_id> --temporary` (non-card check only) · `mp answer <agent_id> <N>` (pick an AskUserQuestion option) ·
     `mp revive <agent_id>` (un-retire) · `mp status` (list agents). `mp` is already on PATH.
   - **How a message REACHES you (the flow):** the human (CEO) adds a task or comments on the **TODO
     board** → the server pings YOU by running `mp send <you> "[todo] task <id> … / comment on <id> …"`
@@ -1204,8 +1235,10 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
     `curl -s -X POST -H "X-Queue-Secret: $QUEUE_SECRET" -H 'Content-Type: application/json'
     -d '{"task_id":"<id>","body":"<your reply>","by":"<your_agent_id>"}'
     http://127.0.0.1:9933/todo/comment`. That comment is what the human sees on the board — it IS your
-    reply. (b) **Delegate work:** `mp spawn` an engineer, then `mp send` it the task + done-condition;
-    it posts its result back as a `/todo/comment` under its own id and waits.
+    reply. (b) **Delegate real-card work:** `mp spawn ... --owner-task <card_id>`, immediately record
+    that exact full ID with `POST /todo/owner action:assign`, then `mp send` it the task +
+    done-condition. It posts its result under its own id, remains owner after every Stop, and receives
+    every later comment on that card until the CEO closes it.
   - **First-message rule:** on your very first `[todo]` ping, immediately (1) read the task/comment,
     (2) decide answer-directly vs delegate, (3) ACT (post the comment, or spawn+send) — do NOT spend
     the turn rediscovering how to send; the cheat-sheet above is everything you need. (J48.)
@@ -1219,12 +1252,13 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
   hook preserves the onboarding summary unless the Boss writes a new keyword-bearing one).
 - **The end-to-end comms loop MUST close first-time (CEO 2026-06-18 — gated J32).** On a `[todo]`
   ping (create OR comment, §6), the Boss **MUST act AUTONOMOUSLY, without further human prompting**:
-  (a) reads the task/comment, (b) **immediately `mp spawn`s an engineer** and assigns the task to it
-  (do NOT leave the task sitting in `needs_brainstorm` waiting to be told — the ping IS the trigger; the engineer
-  picks it up, moving `needs_brainstorm → working`),
+  (a) reads the task/comment and its current `assignee`; (b) for a new real work card with no owner,
+  **immediately CREATE one fresh `--owner-task <card_id>` engineer and record its exact ID** (do NOT
+  leave the task sitting in `needs_brainstorm`; the ping IS the trigger); for every later comment on
+  that card, send the next round to that SAME recorded owner — NEVER spawn a replacement per message,
   (c) the engineer does the work and **posts results back into the TODO** (`POST /todo/comment` as
   its agent_id) — NOT into raw tmux; (d) when the CEO **comments** a follow-up, the comment-ping
-  reaches the Boss and it **runs the next round**. **Root-cause of the first-try fail (folded
+  reaches the Boss and it **runs the next round with the stored owner**. **Root-cause of the first-try fail (folded
   2026-06-18): the doctrine described the loop but didn't MANDATE the Boss spawn-on-ping autonomy, so
   the first Boss sat idle on the joke task (0 jokes).** The autonomous spawn-on-task is the contract,
   not optional. (Linked to J2c: a Boss with a real keyword-bearing doctrine summary actually drives.)
@@ -1733,8 +1767,9 @@ exit 0.**
     unsupported, no up/down control). A faithful PLOW UI that clears every gate is correct even though
     it is not pixel-identical to any prior app.
 15. **Delete task.** `update{op:del,id}` removes the task from `/todo/board` (tasks + order). (F2)
-16. **Inline edit.** `update{op:set,id,text|doneCondition|assignee}` patches that field (note the
-    REAL names per §6); read back on the board. (F3)
+16. **Inline edit + controlled owner.** `update{op:set,id,text|doneCondition}` patches those editable
+    fields. Any `add/set{assignee}` is rejected. The UI contains no assignee text input: it renders
+    only the full read-only current owner (linked to the engineer) plus visible owner history. (F3)
 17. **State enum (boss-doctrine model — REVERTED 2026-06-26 per Boss; was the 2026-06-18 idle model).**
     A newly-added task is born **`needs_brainstorm`**. Setting each of
     `needs_brainstorm|working|review|done|blocked|cancelled` via `set{state}` (field **`state`**, NOT
@@ -2108,8 +2143,9 @@ exit 0.**
       with its **spawn command** (the SPAWN CMD cell, non-empty) AND its `mp revive <agent_id>`.
     - **g. Proof renders:** a card with an image/video proof (posted via API) shows the real
       `<img>`/`<video>` chip in the modal (no broken/text chip); there is NO proof-attach control in the UI.
-    - **h. Assignee is a clickable link to the engineer's tab (CEO 2026-06-27):** add a card, assign it
-      to a REAL agent on this node (e.g. the Boss from `/agents`); on the board, assert its assignee
+    - **h. Assignee is a clickable link to the engineer's tab (CEO 2026-06-27):** add a card, spawn a
+      REAL fresh engineer on this node with `--owner-task <card_id>`, assign that exact ID through the
+      Boss-only `/todo/owner` path; on the board, assert its assignee
       renders as an **anchor `a.asg-link`** (tagName `A`, not a plain `<span>`), and **clicking it opens
       the engineer's tab** — a popup/navigation to the attach URL (`…/?arg=-t&arg=<tmux target>`).
       FAIL if the assignee is plain text or the click does not navigate to that engineer's terminal.
@@ -2185,7 +2221,20 @@ exit 0.**
     element = FAIL. **A hydrate is only "ready" (and the agent may only tell the CEO to use it) after
     THIS suite passes via the real browser** — supersedes the weaker self-graded J31 (which becomes the
     smoke-subset of this). (F-browser-journeys)
-> Gates J14–J38 are NON-OPTIONAL (CEO 2026-06): the Verify harness MUST assert every one. A
+50. 🔴 **CARD-LIFETIME OWNER LIFECYCLE (CEO 2026-07-10).** In an isolated board/roster fixture,
+    assert all of: (a) arbitrary/partial/unknown/dead/retired IDs are rejected; (b) browser/non-Boss
+    calls and a Boss-created `--temporary` agent are rejected; (c) only the exact live
+    `--owner-task <card_id>` full roster ID assigns and renders as the read-only linked owner; (d)
+    `update set assignee` and an implicit second `assign` cannot overwrite an open owner, while
+    explicit `replace` can; (e) two CEO comments route to the SAME owner and do not change it; (f) an
+    owner Stop/completed turn does not retire, clear, or replace it; (g) CEO close preserves visible
+    assignee/history and emits the exact Boss kill contract; (h) CEO reopen marks fresh-owner pending,
+    rejects reusing the old owner, then stores a different freshly spawned `--owner-task` ID through
+    `action:reopen`; (i) generated `todos.html` has no editable assignee input or selector/pool UI;
+    (j) the full current culture output remains CEO→Boss first person, contains both REAL WORK CARD and
+    TEMPORARY rules, retains all unrelated v5 sections, and contains no `when the CEO` regression.
+    Test through the HTTP API plus a real browser for the owner link; no direct board-file mutation.
+> Gates J14–J50 are NON-OPTIONAL: the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
 > joke-protocol E2E loop, needs a manual refresh, steals focus/caret on poll, **or hangs on a
@@ -2284,7 +2333,7 @@ that passes every gate is correct, per Decision B.)
 |---|---|---|---|
 | F1 | add task (Enter) | `update{op:add,text}` → task born **`needs_brainstorm`**, prepended to `order` | J3 |
 | F2 | delete task | `update{op:del,id}` removes from tasks+order | J15 |
-| F3 | edit text / done-condition / assignee inline | `update{op:set,id,text\|doneCondition\|assignee}` patches the field (REAL names, §6) | J16 |
+| F3 | edit text / done-condition; owner read-only | `update{op:set,id,text\|doneCondition}` patches editable fields; `assignee` add/set is rejected; current owner + history are read-only, owner link works | J16 + J50 |
 | F4 | state change | `update{op:set,id,state}` (field **`state`**) or `/todo/status`; enum `needs_brainstorm\|working\|review\|done` + `blocked\|cancelled\|recurring` (NO `idle`; `review` displays "review (CEO)"; `recurring` = its own lane, §7.0) | J17 |
 | F5 | done checkbox / work-to-done toggle | `set{done}`/`set{workToDone}` flips `state`→`done`, renders strikethrough | J18 |
 | F6 | **needs_brainstorm → working, NO gate** (boss-doctrine, REVERTED 2026-06-26) | new task is `needs_brainstorm`; an engineer `set{state:working}` with no brainstorm/answer gate | J19 |
@@ -2293,6 +2342,7 @@ that passes every gate is correct, per Decision B.)
 | F9 | unread badge | **server-side rule (folded 2026-06-18 — was underspecified → first impl left `unread` null):** each task has an integer `unread` (default **0**); the server **increments it on every `/todo/comment` whose `by` is NOT the CEO/reader**, and `/todo/board` returns it. UI reads localStorage READ_KEY for the read-state. | J21 |
 | F10 | proofs (image/video/link/text + more) | `/todo/proof{task_id,kind,url\|body}` appends to `proofs[]`; board returns them | J22 |
 | F11 | assignee chip → attach to that engineer's terminal | `/todo/attach?agent=` resolves `{target,base}` (live) | J7 |
+| F31 | Boss-controlled owner lifecycle | `/todo/owner assign\|replace\|reopen` validates full live roster owner; same owner receives comments/turns; CEO close→kill contract; reopen→fresh owner | J50 |
 | F12 | ITEM 3 — clickable commenter agent name → terminal | same resolver; non-agent (`CEO`) authors are plain text | J7 |
 | ~~F13~~ | ~~dependencies/subtasks/hard-gate~~ **REMOVED (CEO 2026-06-17)** | backend must NOT implement `add{parent}`/`dependsOn`/`hardGate`; generated UI has no such controls | J23 (negative) |
 | F14 | board→Boss ping on **add AND every comment** | `mp send <BOSS_AGENT>` on non-test add + on each `/todo/comment` (exempt only the Boss's own); logged to `boss-inbox.log` (§6) | J3 + J32 |
