@@ -49,6 +49,16 @@ for (const [name, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
     }
     if (await out.locator("script,img,iframe,object,embed").count()) throw new Error(`${name}: unsafe HTML rendered`);
     if (await out.locator('a[href^="javascript:"],a[href^="data:"]').count()) throw new Error(`${name}: unsafe link rendered`);
+    const safeLink = out.locator('a[href="https://example.com"]');
+    if (await safeLink.getAttribute("target") !== "_blank") throw new Error(`${name}: safe link missing target=_blank`);
+    const rel = (await safeLink.getAttribute("rel") || "").split(/\s+/);
+    if (!rel.includes("noopener") || !rel.includes("noreferrer")) throw new Error(`${name}: safe link missing safe rel`);
+    const popupPromise = page.waitForEvent("popup");
+    await safeLink.click();
+    const popup = await popupPromise;
+    await popup.waitForLoadState("domcontentloaded");
+    if (new URL(popup.url()).hostname !== "example.com") throw new Error(`${name}: bad popup ${popup.url()}`);
+    await popup.close();
     if (await page.evaluate(() => Boolean(window.__markdownXss))) throw new Error(`${name}: injected code executed`);
     const text = await out.innerText();
     if (!text.includes("<script>window.__markdownXss=1</script>") || !text.includes("<img src=x onerror=")) {

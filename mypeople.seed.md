@@ -1191,7 +1191,9 @@ gaps the CEO called out vs `127.0.0.1:9933`). All four are REQUIRED, gated by J4
    blockquotes, and links. Preserve ordinary plain-text paragraphs and embedded newlines. Build the
    result from DOM nodes/text nodes (or sanitize with an explicit allowlist): raw HTML remains visible
    text, scripts/event attributes never become live nodes, and link URLs reject dangerous schemes
-   such as `javascript:` and `data:`. The stored `comments[].body` is immutable source text; rendering
+   such as `javascript:` and `data:`. Safe HTTP(S) links are visibly clickable and open a new tab with
+   `target="_blank"` plus `rel="noopener noreferrer"`, preserving the TODO card. The stored
+   `comments[].body` is immutable source text; rendering
    MUST NOT rewrite existing CEO or agent content. Gated J52.
 3. **ASSIGNEE indicator — a clickable LINK to the engineer's tab (CEO 2026-06-27, NOT plain text).**
    The **list card's `.meta`** AND the open card's sub-header show the assignee `@<assignee>` (or
@@ -2267,8 +2269,10 @@ exit 0.**
     comment fixture containing headings, bold, italic, inline code, a fenced code block, ordered and
     unordered lists, a blockquote, a safe HTTPS link, a plain-text multi-line paragraph, raw
     `<script>`/`<img onerror>` markup, and `[bad](javascript:...)`. Assert the expected semantic DOM
-    elements exist, plain newlines remain visible, zero raw unsafe elements or dangerous-scheme links
-    are created, no injected handler executes, and the stored source body is unchanged.
+    elements exist, plain newlines remain visible, the HTTPS link opens a new tab with
+    `target="_blank"` and `rel` containing both `noopener` and `noreferrer`, zero raw unsafe elements
+    or dangerous-scheme links are created, no injected handler executes, and the stored source body
+    is unchanged.
 > Gates J14–J52 are NON-OPTIONAL: the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
