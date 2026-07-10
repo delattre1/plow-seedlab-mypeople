@@ -163,6 +163,12 @@ def main():
         closed = request(base, "/todo/board")[1]["tasks"][task_id]
         assert closed["assignee"] == owner2
         assert any("CLOSED by the CEO" in message and owner2 in message for message in signals)
+        routed_before_closed_comment = len(routed)
+        assert request(base, "/todo/comment", {
+            "task_id": task_id, "by": "CEO", "body": "closed-card note",
+        })[0] == 200
+        time.sleep(0.05)
+        assert len(routed) == routed_before_closed_comment
         assert request(base, "/todo/status", {
             "task_id": task_id, "state": "working", "by": "CEO",
         })[0] == 200
