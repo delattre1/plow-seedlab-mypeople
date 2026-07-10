@@ -68,6 +68,11 @@ A short form `<session>:<tab>` is allowed in CLI invocations when the host is un
 | **Pane truth** | When w1 finishes a turn, Boss's pane gains a line like `[AGENT NOTIFICATION] w1 (mc-test) finished: <summary>`. |
 | **Test** | `mp spawn x --name Boss -s test --master --backend claude`<br>`mp spawn x --name w1 -s test --backend claude --boss mc-test:Boss`<br>`mp send test --tab w1 "Reply with the word PONG only"`<br>`# wait until Boss pane contains the notification`<br>`tmux capture-pane -t mc-test:Boss -p -S -200 \| grep -q '\[AGENT NOTIFICATION\] w1.*PONG'` |
 
+Message submission is payload-exact: empty/whitespace messages are rejected without touching tmux,
+ordinary messages receive exactly one submit Enter, and a second Enter is allowed only while the
+marker for that multi-line paste is still visibly pending. Owner/Stop notifications never submit an
+empty composer, stale draft, or fallback payload.
+
 ## 7. stop-hook (per-spawn Claude Code plugin fires on every turn end)
 
 | | |

@@ -479,11 +479,18 @@ file writes — no dialog interaction):**
   holds historically: an onboarding paste landing on an un-pre-set bypass dialog could select "No,
   exit" and kill the only window — pre-setting the config removes that failure mode at the source.)
 - A live agent never needs to touch any of this; the config is already correct when it launches.
-**5.5b — bracketed paste needs
-a second Enter:** a multi-line prompt renders collapsed as `[Pasted text #1]` and a single Enter
-does NOT reliably submit; `mp send`/`spawn` must send Enter, wait ~0.4s, then send a **second
-Enter** (a redundant Enter on an empty composer is a harmless no-op). Verify proves a Boss actually
-spawns AND survives (§15 J2/J4).
+**5.5b — submit exactly the queued payload; never press Enter on an empty/stale composer.**
+`mpcommon.tmux_send_message` MUST reject a missing, empty, or whitespace-only `message` before it
+touches tmux. For a non-empty message it pastes the literal payload and sends one Enter. A second
+Enter is permitted ONLY as a content-aware retry for a multi-line payload when a fresh pane capture
+after ~0.4s still shows the TUI's `[Pasted text ...]` marker, proving the first Enter did not submit
+that paste. Never send an unconditional second Enter: on Codex, rapid TODO/Stop-hook deliveries can
+land while the composer is transitioning or contains a stale draft, and the extra Enter can submit
+an empty/stale turn. The 2026-07-10 production incident produced byte-identical unrelated final
+answers after otherwise valid owner notifications because the shared helper treated that second
+Enter as a harmless no-op. It is not harmless. Queue payload, composer contents, and submitted user
+turn must remain 1:1. Verify covers empty/no-op delivery, the conditional multi-line retry, and
+ordinary TODO replies in addition to Boss spawn survival (§15 J2/J4).
 **5.5c — folder-trust must be pre-accepted for ANY working dir (folded 2026-06-18, CEO).** Claude
 Code shows a **"Accessing workspace … — trust this folder?"** dialog the first time an agent opens a
 directory not yet trusted — keyed PER exact path in `~/.claude.json` under `projects`. Pre-trusting
@@ -1685,6 +1692,17 @@ exit 0.**
    with an explanatory error (an empty boss is always an unset-`$AGENT_ID` bug), while `mp spawn
    <aid>` with `--boss` OMITTED MUST succeed (valid top-level agent). A build that silently accepts
    `--boss ''` — creating an agent whose boss resolves to `<host>/` — trips this gate.
+3c. 🔴 **Payload-exact composer delivery (folded 2026-07-10).** Unit-drive the generated
+   `mpcommon.tmux_send_message` with a mocked tmux runner, then exercise the live Boss through the
+   queue. *Expect:* `None`, `""`, whitespace, and newline-only payloads return failure and issue ZERO
+   tmux commands; an ordinary one-line TODO reply issues exactly one Enter; a multi-line payload
+   whose post-submit capture has no `[Pasted text ...]` marker also issues exactly one Enter; and a
+   multi-line payload whose marker remains gets exactly one retry Enter. Then deliver three empty/no-op
+   owner notifications followed by one normal TODO reply to a clean Boss session. The transcript must
+   contain only the normal non-empty user turn and its relevant response: no empty user turn, no stale
+   composer text, no previous assistant fallback, and no unrelated payload. Compare transcript event
+   timestamps/content, not just pane rendering. Any unconditional second Enter or any tmux command for
+   an empty payload = FAIL.
 4. **Supervisor resurrection.** The supervisor daemon is alive; kill `mc-main:Boss`; *Expect:* it
    **auto-respawns** and reappears `alive` in `/agents` within the supervisor cycle (no human).
 5. **TODO add-task round-trips.** A task created via the API is read back on `/todo/board` and
