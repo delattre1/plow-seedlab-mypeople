@@ -722,6 +722,9 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   `replace` is the explicit open-card replacement operation and emits a Boss contract to kill the
   prior owner. `reopen` works only after a CEO terminal→open transition and requires a DIFFERENT,
   fresh owner. Every lifecycle change appends to `ownerHistory`; current `assignee` remains visible.
+  Every full agent ID rendered from `ownerHistory` — both the new/current owner and `previous` owner
+  on assign/replace/reopen/migration events — MUST be a real `.asg-link` using `/todo/attach`, never
+  concatenated into plain event text. Clicking it opens that exact engineer's terminal.
 - 🔴 **CLOSE/REOPEN CONTRACT:** on a CEO transition from open→`done|cancelled`, preserve the assignee
   and history and ping the Boss explicitly to kill that owner. On CEO terminal→open, mark
   `ownerNeedsReplacement:true` and ping the Boss to CREATE (never select) one fresh engineer with
@@ -2241,6 +2244,9 @@ exit 0.**
     `action:reopen`; (i) generated `todos.html` has no editable assignee input or selector/pool UI;
     (j) the full current culture output remains CEO→Boss first person, contains both REAL WORK CARD and
     TEMPORARY rules, retains all unrelated v5 sections, and contains no `when the CEO` regression.
+    (k) current-assignee, comment-author, and every owner-history `agent_id`/`previous` full ID render
+    as clickable terminal links; verify a replacement event with two distinct agents opens each exact
+    tmux target rather than rendering either ID as plain `.ev-text`.
     Test through the HTTP API plus a real browser for the owner link; no direct board-file mutation.
 51. 🔴 **MIGRATION + VERIFY CLEANLINESS (CEO 2026-07-10).** In an isolated board fixture containing
     an assigned open legacy card with `ownerHistory:null` and `ownerNeedsReplacement:null`, run the
@@ -2360,6 +2366,7 @@ that passes every gate is correct, per Decision B.)
 | F11 | assignee chip → attach to that engineer's terminal | `/todo/attach?agent=` resolves `{target,base}` (live) | J7 |
 | F31 | Boss-controlled owner lifecycle | `/todo/owner assign\|replace\|reopen` validates full live roster owner; same owner receives comments/turns; CEO close→kill contract; reopen→fresh owner | J50 |
 | F32 | legacy-owner migration + clean Verify teardown | startup backfills one truthful owner event/false pending flag idempotently; Verify removes only its exact card/agent/session IDs on every exit | J51 |
+| F33 | ownership-history IDs → terminal | every full `agent_id` and `previous` in ownership events renders as `.asg-link` and opens that exact `/todo/attach` target | J50 + J49h |
 | F12 | ITEM 3 — clickable commenter agent name → terminal | same resolver; non-agent (`CEO`) authors are plain text | J7 |
 | ~~F13~~ | ~~dependencies/subtasks/hard-gate~~ **REMOVED (CEO 2026-06-17)** | backend must NOT implement `add{parent}`/`dependsOn`/`hardGate`; generated UI has no such controls | J23 (negative) |
 | F14 | board→Boss ping on **add AND every comment** | `mp send <BOSS_AGENT>` on non-test add + on each `/todo/comment` (exempt only the Boss's own); logged to `boss-inbox.log` (§6) | J3 + J32 |

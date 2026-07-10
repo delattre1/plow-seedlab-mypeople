@@ -207,6 +207,8 @@ def main():
         assert 'patchTask(task.id,{assignee' not in ui
         assert 'placeholder="host/session:agent"' not in ui
         assert 'task.ownerHistory||[]' in ui and 'owner.textContent=task.assignee||"unassigned"' in ui
+        assert 'appendAgentLink(txt,it.agent_id||it.previous)' in ui
+        assert 'appendAgentLink(txt,it.previous)' in ui
         culture = culture_path.read_text()
         required = [
             "BOSS CULTURE — A LOVE DECLARATION (v6)", "REAL WORK CARD", "TEMPORARY engineer",
