@@ -145,12 +145,14 @@ def main():
         status, replaced = owner_call("replace", owner2)
         assert status == 200 and replaced["previous"] == owner1
 
+        comment_signal_start = len(signals)
         for text in ("first follow-up", "second follow-up"):
             assert request(base, "/todo/comment", {
                 "task_id": task_id, "by": "CEO", "body": text,
             })[0] == 200
-        time.sleep(0.1)
-        assert [agent for agent, _ in routed[-2:]] == [owner2, owner2], routed
+        comment_signals = signals[comment_signal_start:]
+        assert len(comment_signals) == 2
+        assert all(("owner=" + owner2) in message for message in comment_signals)
         assert request(base, "/todo/status", {
             "task_id": task_id, "state": "review", "by": owner2,
         })[0] == 200
@@ -163,12 +165,9 @@ def main():
         closed = request(base, "/todo/board")[1]["tasks"][task_id]
         assert closed["assignee"] == owner2
         assert any("CLOSED by the CEO" in message and owner2 in message for message in signals)
-        routed_before_closed_comment = len(routed)
         assert request(base, "/todo/comment", {
             "task_id": task_id, "by": "CEO", "body": "closed-card note",
         })[0] == 200
-        time.sleep(0.05)
-        assert len(routed) == routed_before_closed_comment
         assert request(base, "/todo/status", {
             "task_id": task_id, "state": "working", "by": "CEO",
         })[0] == 200

@@ -708,9 +708,10 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   - This is NOT the cut "manual reorder" (no `reorder` op, no up/down arrows) — it is a binary
     pin/unpin star with an UNCAPPED, insertion-ordered pinned group.
 - `POST /todo/comment {task_id, by, body}` — append a thread comment; **`by` is the author's
-  agent_id** for agent comments (`host/sess:tab`), or `"CEO"` for the human. A CEO comment on an
-  open owned card is routed to that exact stored assignee; it never creates, retires, or replaces an
-  owner. A Stop/completed turn likewise never mutates ownership.
+  agent_id** for agent comments (`host/sess:tab`), or `"CEO"` for the human. The Boss ping for every
+  CEO comment names the exact stored owner, so the Boss routes the next turn to that assignee; it
+  never creates, retires, or replaces an owner for a comment. A Stop/completed turn likewise never
+  mutates ownership.
 - 🔴 **CONTROLLED OWNER API:** `POST /todo/owner {action,task_id,agent_id,by}` where `action` is
   `assign|replace|reopen`. It is machine-authenticated and Boss-only (`by` MUST equal the one
   `<host>/main:Boss`); the browser and other agents receive 403. It accepts only a FULL exact
