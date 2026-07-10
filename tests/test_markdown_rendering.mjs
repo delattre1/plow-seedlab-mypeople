@@ -28,6 +28,11 @@ const source = [
   "",
   "[safe](https://example.com)",
   "",
+  "| Feature | Result |",
+  "|:---|---:|",
+  "| **Bold cell** | [table safe](https://example.com/table) |",
+  "| Unsafe cell | [js](javascript:alert(1)) [data](data:text/html,bad) <img src=x onerror=alert(1)> |",
+  "",
   "```js",
   "const value = '<script>';",
   "```",
@@ -44,9 +49,11 @@ for (const [name, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
     await page.setContent(`<div id="out"></div><script>${renderer}<\/script>`);
     await page.evaluate(value => renderMarkdown(document.querySelector("#out"), value), source);
     const out = page.locator("#out");
-    for (const selector of ["h1", "strong", "em", "p br", "ul li", "ol li", "blockquote", "pre code", 'a[href="https://example.com"]']) {
+    for (const selector of ["h1", "strong", "em", "p br", "ul li", "ol li", "blockquote", "pre code", 'a[href="https://example.com"]', "table thead th", "table tbody tr", "table tbody td strong", 'table a[href="https://example.com/table"]']) {
       if (await out.locator(selector).count() < 1) throw new Error(`${name}: missing ${selector}`);
     }
+    if (await out.locator("table thead th").count() !== 2 || await out.locator("table tbody tr").count() !== 2) throw new Error(`${name}: malformed GFM table`);
+    if (await out.locator("table thead th").nth(0).getAttribute("style") !== "text-align: left;" || await out.locator("table thead th").nth(1).getAttribute("style") !== "text-align: right;") throw new Error(`${name}: table alignment missing`);
     if (await out.locator("script,img,iframe,object,embed").count()) throw new Error(`${name}: unsafe HTML rendered`);
     if (await out.locator('a[href^="javascript:"],a[href^="data:"]').count()) throw new Error(`${name}: unsafe link rendered`);
     const safeLink = out.locator('a[href="https://example.com"]');
@@ -59,6 +66,8 @@ for (const [name, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
     await popup.waitForLoadState("domcontentloaded");
     if (new URL(popup.url()).hostname !== "example.com") throw new Error(`${name}: bad popup ${popup.url()}`);
     await popup.close();
+    const tableLink = out.locator('table a[href="https://example.com/table"]');
+    if (await tableLink.getAttribute("target") !== "_blank" || !(await tableLink.getAttribute("rel") || "").includes("noopener noreferrer")) throw new Error(`${name}: table link lost safe attributes`);
     if (await page.evaluate(() => Boolean(window.__markdownXss))) throw new Error(`${name}: injected code executed`);
     const text = await out.innerText();
     if (!text.includes("<script>window.__markdownXss=1</script>") || !text.includes("<img src=x onerror=")) {

@@ -1195,7 +1195,9 @@ gaps the CEO called out vs `127.0.0.1:9933`). All four are REQUIRED, gated by J4
    marker (no avatar), distinct from comment bubbles.
    🔴 **Comment bodies render safe Markdown, never literal markup and never trusted HTML.** Support at
    least headings, bold, italic, inline code, fenced code blocks, ordered/unordered lists,
-   blockquotes, and links. Preserve ordinary plain-text paragraphs and embedded newlines. Build the
+   blockquotes, links, and GFM tables (`header` + delimiter row + body rows, including column
+   alignment). Tables render semantic `table/thead/tbody/tr/th/td` DOM and reuse the same safe inline
+   parser inside every cell. Preserve ordinary plain-text paragraphs and embedded newlines. Build the
    result from DOM nodes/text nodes (or sanitize with an explicit allowlist): raw HTML remains visible
    text, scripts/event attributes never become live nodes, and link URLs reject dangerous schemes
    such as `javascript:` and `data:`. Safe HTTP(S) links are visibly clickable and open a new tab with
@@ -2285,12 +2287,13 @@ exit 0.**
     generic text matching to delete cards; cleanup only exact IDs created by that run.
 52. 🔴 **SAFE MARKDOWN COMMENTS (CEO 2026-07-10).** In Chromium and WebKit, render an isolated
     comment fixture containing headings, bold, italic, inline code, a fenced code block, ordered and
-    unordered lists, a blockquote, a safe HTTPS link, a plain-text multi-line paragraph, raw
+    unordered lists, a blockquote, a safe HTTPS link, a GFM table with aligned columns and inline
+    formatting/links in cells, a plain-text multi-line paragraph, raw
     `<script>`/`<img onerror>` markup, and `[bad](javascript:...)`. Assert the expected semantic DOM
     elements exist, plain newlines remain visible, the HTTPS link opens a new tab with
     `target="_blank"` and `rel` containing both `noopener` and `noreferrer`, zero raw unsafe elements
-    or dangerous-scheme links are created, no injected handler executes, and the stored source body
-    is unchanged.
+    or dangerous-scheme links are created (including malicious cell content), no injected handler
+    executes, and the stored source body is unchanged.
 > Gates J14–J52 are NON-OPTIONAL: the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
@@ -2402,7 +2405,7 @@ that passes every gate is correct, per Decision B.)
 | F31 | Boss-controlled owner lifecycle | `/todo/owner assign\|replace\|reopen` validates full live roster owner; same owner receives comments/turns; CEO close→kill contract; reopen→fresh owner | J50 |
 | F32 | legacy-owner migration + clean Verify teardown | startup backfills one truthful owner event/false pending flag idempotently; Verify removes only its exact card/agent/session IDs on every exit | J51 |
 | F33 | ownership-history IDs → terminal | every full `agent_id` and `previous` in ownership events renders as `.asg-link` and opens that exact `/todo/attach` target | J50 + J49h |
-| F34 | safe Markdown comment rendering | headings, emphasis, inline/fenced code, lists, blockquotes, and safe links render as DOM; plain text/newlines remain readable; raw HTML/scripts and dangerous URL schemes stay inert text | J52 |
+| F34 | safe Markdown comment rendering | headings, emphasis, inline/fenced code, lists, blockquotes, safe links, and semantic GFM tables render as DOM; plain text/newlines remain readable; raw HTML/scripts and dangerous URL schemes stay inert text, including inside cells | J52 |
 | F12 | ITEM 3 — clickable commenter agent name → terminal | same resolver; non-agent (`CEO`) authors are plain text | J7 |
 | ~~F13~~ | ~~dependencies/subtasks/hard-gate~~ **REMOVED (CEO 2026-06-17)** | backend must NOT implement `add{parent}`/`dependsOn`/`hardGate`; generated UI has no such controls | J23 (negative) |
 | F14 | board→Boss ping on **add AND every comment** | `mp send <BOSS_AGENT>` on non-test add + on each `/todo/comment` (exempt only the Boss's own); logged to `boss-inbox.log` (§6) | J3 + J32 |
