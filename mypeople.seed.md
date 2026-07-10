@@ -1186,6 +1186,13 @@ gaps the CEO called out vs `127.0.0.1:9933`). All four are REQUIRED, gated by J4
    timestamp, see #4) and the comment body. NOT a bare line of text — the avatar/profile + bubble
    structure is the point. State-transition / "opened" events render as a compact centered timeline
    marker (no avatar), distinct from comment bubbles.
+   🔴 **Comment bodies render safe Markdown, never literal markup and never trusted HTML.** Support at
+   least headings, bold, italic, inline code, fenced code blocks, ordered/unordered lists,
+   blockquotes, and links. Preserve ordinary plain-text paragraphs and embedded newlines. Build the
+   result from DOM nodes/text nodes (or sanitize with an explicit allowlist): raw HTML remains visible
+   text, scripts/event attributes never become live nodes, and link URLs reject dangerous schemes
+   such as `javascript:` and `data:`. The stored `comments[].body` is immutable source text; rendering
+   MUST NOT rewrite existing CEO or agent content. Gated J52.
 3. **ASSIGNEE indicator — a clickable LINK to the engineer's tab (CEO 2026-06-27, NOT plain text).**
    The **list card's `.meta`** AND the open card's sub-header show the assignee `@<assignee>` (or
    `unassigned`). 🔴 **When the assignee is an attachable agent_id (`host/sess:tab`), it MUST render as
@@ -2256,7 +2263,13 @@ exit 0.**
     ID MUST be registered in trap/finally cleanup; after success OR failure, assert zero test cards,
     zero test `/agents` rows, zero test roster records, and zero test tmux sessions/windows. Never use
     generic text matching to delete cards; cleanup only exact IDs created by that run.
-> Gates J14–J51 are NON-OPTIONAL: the Verify harness MUST assert every one. A
+52. 🔴 **SAFE MARKDOWN COMMENTS (CEO 2026-07-10).** In Chromium and WebKit, render an isolated
+    comment fixture containing headings, bold, italic, inline code, a fenced code block, ordered and
+    unordered lists, a blockquote, a safe HTTPS link, a plain-text multi-line paragraph, raw
+    `<script>`/`<img onerror>` markup, and `[bad](javascript:...)`. Assert the expected semantic DOM
+    elements exist, plain newlines remain visible, zero raw unsafe elements or dangerous-scheme links
+    are created, no injected handler executes, and the stored source body is unchanged.
+> Gates J14–J52 are NON-OPTIONAL: the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
 > joke-protocol E2E loop, needs a manual refresh, steals focus/caret on poll, **or hangs on a
@@ -2367,6 +2380,7 @@ that passes every gate is correct, per Decision B.)
 | F31 | Boss-controlled owner lifecycle | `/todo/owner assign\|replace\|reopen` validates full live roster owner; same owner receives comments/turns; CEO close→kill contract; reopen→fresh owner | J50 |
 | F32 | legacy-owner migration + clean Verify teardown | startup backfills one truthful owner event/false pending flag idempotently; Verify removes only its exact card/agent/session IDs on every exit | J51 |
 | F33 | ownership-history IDs → terminal | every full `agent_id` and `previous` in ownership events renders as `.asg-link` and opens that exact `/todo/attach` target | J50 + J49h |
+| F34 | safe Markdown comment rendering | headings, emphasis, inline/fenced code, lists, blockquotes, and safe links render as DOM; plain text/newlines remain readable; raw HTML/scripts and dangerous URL schemes stay inert text | J52 |
 | F12 | ITEM 3 — clickable commenter agent name → terminal | same resolver; non-agent (`CEO`) authors are plain text | J7 |
 | ~~F13~~ | ~~dependencies/subtasks/hard-gate~~ **REMOVED (CEO 2026-06-17)** | backend must NOT implement `add{parent}`/`dependsOn`/`hardGate`; generated UI has no such controls | J23 (negative) |
 | F14 | board→Boss ping on **add AND every comment** | `mp send <BOSS_AGENT>` on non-test add + on each `/todo/comment` (exempt only the Boss's own); logged to `boss-inbox.log` (§6) | J3 + J32 |
