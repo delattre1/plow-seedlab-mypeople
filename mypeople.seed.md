@@ -727,6 +727,13 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   `ownerNeedsReplacement:true` and ping the Boss to CREATE (never select) one fresh engineer with
   `--owner-task <card_id>`, then record that exact ID with `action:"reopen"`. Until that happens,
   comments do not route to the retired prior owner.
+- 🔴 **LEGACY OWNER MIGRATION:** at todo-server startup, idempotently backfill cards created before
+  the controlled-owner schema. If `ownerHistory` is missing/null, initialize it; when such a card
+  already has an `assignee`, append exactly one truthful `migrated_existing_owner` event naming that
+  unchanged agent, authored by `system` at MIGRATION time (never fabricate the original assignment
+  time). If `ownerNeedsReplacement` is missing/null, set it to `false`. Preserve every card ID,
+  assignee, state, comment, proof, and all unrelated fields; emit no create/kill/comment lifecycle
+  signal. Re-running migration makes zero changes and never adds a second event.
 - `GET /todo/attach?agent=<agent_id>` → `{ok, target:"mc-<sess>:<tab>", base:"<attach_base>"}` —
   resolves an agent to its ttyd attach target (looks up the host's `attach_base` from
   `/clients`). This is the resolver behind click-to-terminal (§7).
@@ -2235,7 +2242,15 @@ exit 0.**
     (j) the full current culture output remains CEO→Boss first person, contains both REAL WORK CARD and
     TEMPORARY rules, retains all unrelated v5 sections, and contains no `when the CEO` regression.
     Test through the HTTP API plus a real browser for the owner link; no direct board-file mutation.
-> Gates J14–J50 are NON-OPTIONAL: the Verify harness MUST assert every one. A
+51. 🔴 **MIGRATION + VERIFY CLEANLINESS (CEO 2026-07-10).** In an isolated board fixture containing
+    an assigned open legacy card with `ownerHistory:null` and `ownerNeedsReplacement:null`, run the
+    startup migration twice. Assert the assignee/state/comments are byte-for-byte unchanged,
+    `ownerNeedsReplacement=false`, and exactly one `migrated_existing_owner` event exists with
+    `by:"system"` and a migration-time timestamp. Every Verify-created real-board card ID and agent
+    ID MUST be registered in trap/finally cleanup; after success OR failure, assert zero test cards,
+    zero test `/agents` rows, zero test roster records, and zero test tmux sessions/windows. Never use
+    generic text matching to delete cards; cleanup only exact IDs created by that run.
+> Gates J14–J51 are NON-OPTIONAL: the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
 > joke-protocol E2E loop, needs a manual refresh, steals focus/caret on poll, **or hangs on a
@@ -2344,6 +2359,7 @@ that passes every gate is correct, per Decision B.)
 | F10 | proofs (image/video/link/text + more) | `/todo/proof{task_id,kind,url\|body}` appends to `proofs[]`; board returns them | J22 |
 | F11 | assignee chip → attach to that engineer's terminal | `/todo/attach?agent=` resolves `{target,base}` (live) | J7 |
 | F31 | Boss-controlled owner lifecycle | `/todo/owner assign\|replace\|reopen` validates full live roster owner; same owner receives comments/turns; CEO close→kill contract; reopen→fresh owner | J50 |
+| F32 | legacy-owner migration + clean Verify teardown | startup backfills one truthful owner event/false pending flag idempotently; Verify removes only its exact card/agent/session IDs on every exit | J51 |
 | F12 | ITEM 3 — clickable commenter agent name → terminal | same resolver; non-agent (`CEO`) authors are plain text | J7 |
 | ~~F13~~ | ~~dependencies/subtasks/hard-gate~~ **REMOVED (CEO 2026-06-17)** | backend must NOT implement `add{parent}`/`dependsOn`/`hardGate`; generated UI has no such controls | J23 (negative) |
 | F14 | board→Boss ping on **add AND every comment** | `mp send <BOSS_AGENT>` on non-test add + on each `/todo/comment` (exempt only the Boss's own); logged to `boss-inbox.log` (§6) | J3 + J32 |

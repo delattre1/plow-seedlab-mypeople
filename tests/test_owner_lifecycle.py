@@ -93,7 +93,29 @@ def main():
         signals, routed = [], []
         module.ping_boss = signals.append
         module.mp_send = lambda agent, message: routed.append((agent, message)) or 0
-        module.save_board(module.default_board())
+        legacy_id = "legacy-open"
+        legacy_owner = "testhost/main:legacy-owner"
+        legacy_board = module.default_board()
+        legacy_board["order"].append(legacy_id)
+        legacy_board["tasks"][legacy_id] = {
+            "id": legacy_id, "text": "legacy", "state": "working", "assignee": legacy_owner,
+            "ownerHistory": None, "ownerNeedsReplacement": None,
+            "comments": [{"id": "keep", "by": "CEO", "body": "preserve", "ts": 1}],
+            "proofs": [],
+        }
+        before_comments = json.loads(json.dumps(legacy_board["tasks"][legacy_id]["comments"]))
+        assert module.migrate_legacy_owner_fields(legacy_board) is True
+        first_migration = json.loads(json.dumps(legacy_board))
+        assert module.migrate_legacy_owner_fields(legacy_board) is False
+        assert legacy_board == first_migration
+        migrated = legacy_board["tasks"][legacy_id]
+        assert migrated["assignee"] == legacy_owner and migrated["state"] == "working"
+        assert migrated["comments"] == before_comments and migrated["ownerNeedsReplacement"] is False
+        assert len(migrated["ownerHistory"]) == 1
+        assert migrated["ownerHistory"][0]["action"] == "migrated_existing_owner"
+        assert migrated["ownerHistory"][0]["agent_id"] == legacy_owner
+        assert migrated["ownerHistory"][0]["by"] == "system"
+        module.save_board(legacy_board)
         todo = ThreadingHTTPServer(("127.0.0.1", 0), module.Handler)
         threading.Thread(target=todo.serve_forever, daemon=True).start()
         base = "http://127.0.0.1:" + str(todo.server_port)
