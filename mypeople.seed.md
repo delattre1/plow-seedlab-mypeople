@@ -930,6 +930,27 @@ terminal renderer.
   place, add only newly live nodes, remove only retired/dead nodes. NEVER clear/rebuild the node
   container: unchanged iframe DOM identities and ttyd WebSockets MUST persist across every refresh.
   A topology fetch failure says metadata is offline while already connected terminals remain alive.
+- **ASSIGNED TODO TASKS IN THE SAME EXECUTION TREE (CEO GO 2026-07-11):** join the existing
+  `board.v2` `/todo/board` truth into the existing terminal-graph response—never create another graph,
+  board store, task cache, or ownership model. Include a task iff its exact `assignee` is a currently
+  live/non-retired agent node and its state is active; `done`/`cancelled` are terminal and therefore
+  omitted from this active-live graph. Return keyed task metadata `{id,title,state,assignee,href}` and
+  exact owner edges `{from:<assignee>,to:"task:<id>"}`.
+- Render tasks as visually distinct, compact nodes (smaller than terminal cards) at
+  `depth(owner)+1`, directly beneath the owner engineer. Each shows the real card title, full card ID,
+  and current status with the board's state colors; use a lighter/dashed owner→task connector. Pack
+  multiple tasks as a group centered under their owner, with collision-safe spacing between adjacent
+  owner groups. Agent children and task nodes may share a depth row, but every task's parent remains
+  its assignee and every connector flows downward.
+- Reconcile tasks by stable card ID in the SAME keyed pass as agents. Reassignment changes the
+  existing task node's `data-owner`, parent edge, depth/position, and `href` in place—never replace
+  unaffected task nodes and NEVER replace/reconnect any terminal iframe. A CEO close (`done` or
+  `cancelled`) removes the task node/edge within the normal metadata interval; it does not invent an
+  archived task surface or alter owner lifecycle rules.
+- Task click opens `/?task=<exact-card-id>` in the existing TODO app (prefer a new tab so the live
+  graph stays connected). The generated TODO page MUST consume that query once after board load and
+  open its existing exact-card modal; no duplicate detail UI inside the graph and no second task
+  route/model.
 - **STRICT TOP-DOWN REPORTING HIERARCHY (CEO 2026-07-11; supersedes the radial layout):** derive
   depth recursively from roster edges. The one `is_master` Boss is ALWAYS depth 0 at top-center.
   Every direct Boss worker is depth 1 on the single row immediately below Boss, evenly spaced by
@@ -1849,6 +1870,15 @@ exit 0.**
     differing card dimensions/aspect ratios. Assert row boxes do not intersect after default layout,
     attempted drag, reload, and Fit Fleet. A fixed 460×398-style shell, per-pane zoom, crop, or black
     moat around a tiny terminal = FAIL. Run these assertions and screenshots in Chromium + WebKit.
+    Finally, assert assigned-task execution topology in both engines: current real active assignments
+    render at `owner.depth+1` with exact title/ID/state and owner edge; clicking opens the exact
+    `/?task=<id>` TODO modal. Using one `test:true` card and two dedicated live owner fixtures, assign
+    to A, preserve terminal/task DOM identity across at least one metadata refresh, replace owner A→B
+    through the normal controlled owner API, and assert the SAME keyed task node moves to B with its
+    edge updated and no page reload/iframe replacement. Close it as CEO and assert node+edge removal.
+    Trap cleanup MUST delete the exact test card and kill/unregister/remove both fixture agents,
+    status files, roster rows, windows, and recorders on success or failure. Attach Chromium+WebKit
+    screenshots and recordings; zero fixture artifacts may remain.
 9. **PLOW identity.** BOTH `:9933/` and `:9900/dashboard` carry **Volt `#D5EF8A`** + the Plow
    typefaces (`Instrument Serif`/`DM Sans`/`DM Mono`).
 9a. **Wordmark/titles (CEO 2026-06-25, reconciled to match live).** TODO `:9933/`: the browser-TAB
