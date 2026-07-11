@@ -52,7 +52,8 @@ live terminal.
 - **Substrate assumption (bare):** a fresh Debian-ish container with **`claude` installed +
   authenticated**, `python3`, `curl`, `tmux`, `sudo`, and `/dev/net/tun` + `NET_ADMIN`. Anything
   else (`jq`, `procps`, `ttyd`, `tailscale`) the **install step adds** — do not assume present.
-- **Ports (fixed):** queue-server `9900`, TODO app `9933`, ttyd `7681`.
+- **Ports (fixed):** queue-server `9900`, TODO app `9933`, writable ttyd `7681`, read-only
+  terminal-observer ttyd `7682`.
 - **`$INSTALL_DIR`** defaults to `$HOME/mypeople`; layout `bin/ run/ status/ todos/ plugins/`.
 
 ---
@@ -154,7 +155,10 @@ live terminal.
   2. **Wipe is auto-detected, not silently promoted:** the exporter carries the same &lt;50%-shrink
      guard — a snapshot with &lt;50% of the last-good HEAD task count (and HEAD &gt; 5) is committed to a
      **quarantined `board.v2.json.SUSPECT.<epoch>` file, leaving `HEAD:board.v2.json` at the last good
-     full board**, and pings the Boss. So a wipe can never become the new baseline.
+     full board**, and pings the Boss. So a wipe can never become the new baseline. The exporter also
+     honors a narrowly scoped `MYPEOPLE_SUPPRESS_BOSS_NOTIFY=1` for isolated verification only: the
+     quarantine and assertions still execute, but the synthetic shrink MUST NOT message the live Boss.
+     Production supervisor/config never sets this flag.
   3. **`board-restore` is the ONLY writer of the live board on the recovery path** — manual, never
      automatic. It reads a snapshot via `git -C <EXPORT_REPO> show <ref>:board.v2.json` (default HEAD =
      current), **refuses an empty/unparseable snapshot**, **snapshots the current live board to
@@ -567,6 +571,19 @@ session: _v_<tab>_…` + ttyd's "Press Enter to Reconnect" (which never recovers
 one command; set destroy-unattached only after it's attached. The clickable row's `attach_url`
 (§4/§5.2) still carries `-t mc-<sess>:<tab>`; the helper does the grouping.
 
+**5.7b read-only observer ttyd for live terminal canvases (`7682`; reuse the proven Terminal Wall
+architecture, card `d3effa2e2e66`).** Run a second persistent ttyd WITHOUT `-W`, with `-a -p 7682`,
+whose helper accepts the same `-t mc-<sess>:<tab>` arguments. Per connection it MUST create a unique
+throwaway session grouped to the canonical `mc-<sess>` leader, select `<tab>` in that group, and run
+`tmux attach -r -t <unique-group>`. `-r` is mandatory: tmux marks this client `read-only,ignore-size`,
+so a tiny browser observer is excluded from window-size negotiation and can never resize the real
+operator pane. Trap `EXIT INT TERM HUP` and kill ONLY the unique grouped view on disconnect; never
+kill the canonical session/window/process. A safe sequence is detached group creation → select its
+window → read-only attach, with cleanup in the trap; do not set `destroy-unattached` during the brief
+detached interval. The observer service is persistent and supervised independently of page metadata
+polling. Its browser client stays connected until its node retires or the page closes — metadata
+refresh MUST NOT recreate existing iframes/WebSockets.
+
 **5.8 Daemons are detached + pid-tracked + idempotently restartable.** Start with `setsid …
 </dev/null &`, write a pidfile, and a reinstall stops the prior by pidfile then restarts — never
 leave a duplicate. A self-install must not kill the very channel that is driving it: stop a
@@ -878,6 +895,43 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
   (`opacity .4`, grayscale) with an `idle` watermark; working tiles carry the amber pulse. `/todo/wall`
   derives each tile's state by reading that agent's status file. (Generative — build the page from the §7
   PLOW tokens + this contract; do NOT paste bytes — Rule 42.)
+
+**§7.6 — Live spatial Terminal Graph (`GET /terminal-graph` + gated
+`GET /todo/terminal-graph`; CEO 2026-07-11).** This is an ADDITIVE prototype route: `/wall`, HUD, and
+TODO remain present and behaviorally unchanged. It reuses §5.7b rather than inventing another
+terminal renderer.
+
+- The page is an infinite dark Plow canvas (subtle dot grid, Volt/Grove visual language) with pan,
+  pointer-centered wheel zoom, "fit fleet", and "Boss" recenter controls. The ONLY canvas element
+  type is a terminal window. No workflow nodes, generic status cards, screenshots, `capture-pane`,
+  ANSI/text snapshots, or terminal-content polling.
+- Source of truth is live `/agents` joined to `/roster`: include exactly live, non-retired agents.
+  The `is_master` Boss is initially centered and visually dominant. Draw one edge for every live
+  node whose roster `boss_id` is another live node; therefore Boss→owned-engineer topology comes
+  from roster data, never name guessing or hardcoding. The endpoint includes `agent_id`, `boss_id`,
+  `is_master`, canonical `tmux_target`, mapped display status, host, and actual tmux window
+  `cols`/`rows`. State treatment is working=amber pulse, idle=dim/desaturated,
+  blocked=danger-red, ready=Volt.
+- Every node embeds a REAL continuously streaming ttyd `:7682` read-only client for its exact target.
+  Render at the pane's real `cols×rows` geometry, then CSS-transform it down. Compute one common
+  scale from the largest current pane and apply that SAME scale to every node — never zoom a small
+  fossil geometry up independently. The complete pane remains visible; observers stay
+  `read-only,ignore-size` and never mutate window geometry.
+- Reconcile topology by `agent_id` on a short metadata interval (≤3s): update state/edges/labels in
+  place, add only newly live nodes, remove only retired/dead nodes. NEVER clear/rebuild the node
+  container: unchanged iframe DOM identities and ttyd WebSockets MUST persist across every refresh.
+  A topology fetch failure says metadata is offline while already connected terminals remain alive.
+- Nodes are draggable via their title bars; store positions locally by full `agent_id`. New engineers
+  appear around Boss in a radial default layout, retired engineers disappear, and edges update live.
+  Canvas pan never steals node drag.
+- Clicking the terminal surface opens an in-page full-screen iframe on writable ttyd `:7681`, using
+  the exact same target and the isolated grouped-session helper from §5.7. It is genuinely
+  interactive; close/Escape unloads only this writable iframe. The small observer remains read-only
+  and connected underneath.
+- Page and JSON are served symmetrically from the TODO front door, browser-session authenticated in
+  the same way as `/wall`; terminal URLs derive the browser-reachable hostname, not a baked server
+  loopback. Generate a dedicated `terminal-graph.html` plus the todo-server route/endpoint from this
+  contract; do not replace `wall.html`.
 
 🔴 **§7.0 — EXACT TODO board layout, component-for-component (CEO 2026-06-25; MATCH live `127.0.0.1:9933`
 1:1; GENERATE from this spec — do NOT paste CSS/HTML, Rule 42; do NOT ship a leaner page). The served
@@ -1498,9 +1552,10 @@ Author each from §3–§8. They interoperate because you write them together to
   `main:Boss`. (May reuse the queue-client code pointed at `UPSTREAM_QUEUE_URL`, but fully
   isolated from the inner: separate dir, config, pidfile — the inner's lifecycle never touches it.)
 - `bin/mp` — the CLI (§4 verbs), incl. idempotent spawn + the §4 tmux mapping.
-- `bin/todo-server.py` + `bin/todos.html` — GENERATED: the TODO board API + board→Boss ping (§6)
-  and the page, built from the PLOW tokens (§7) + the §A.2 feature contracts. The page + server you
-  write must agree on the §6 API.
+- `bin/todo-server.py` + `bin/todos.html` + `bin/wall.html` + `bin/terminal-graph.html` — GENERATED:
+  the TODO board API + board→Boss ping (§6), existing Wall, and additive live spatial graph, built
+  from the PLOW tokens (§7) + the §A.2 feature contracts. The pages + server agree on the §6 API;
+  adding the graph never replaces or simplifies the other two pages.
 - `bin/dashboard.html` — GENERATED: the HUD (§7), built from the PLOW tokens + §A.2 **F20–F22 only**
   (agents table + retired/revive + cross-nav; **NO machines/hydration grid — §7.1 removed**),
   served by queue-server at `/dashboard`; queue-server satisfies `/clients`+`/agents`+`/roster`+
@@ -1660,14 +1715,19 @@ exit 0.**
    queue-server.py|todo-server.py|queue-client.py|boss-supervisor` each == 1 — no 3× over-spawn). A node
    that hits ready then DRIFTS (agents fall out of `/agents`, or duplicate daemons accumulate) is NOT a
    working install = FAIL. (This is the gate the one-instant Verify missed.)
-3. **Board → Boss ping.** Add a **non-test** task via `POST /todo/update {op:add,text:…}` while
-   the Boss is idle. *Expect:* it lands on `/todo/board` AND the **Boss pane receives the
-   `[todo] … <taskId> …` ping** within ~30s (key off pane-delivery; a busy Boss may rc=1 yet the
-   ping still pastes). An EMPTY Boss pane = the §5.1 `mp`-not-on-PATH regression ⇒ FAIL.
+3. **Board → Boss ping, isolated from the live operator.** Exercise a **non-test** add against an
+   isolated temporary board/server with `ping_boss` captured by the harness (as in the owner-lifecycle
+   regression), and assert the exact `[todo] … <taskId> …` delivery signal. NEVER create a non-test
+   verification card or inject a verification turn into the live Boss. If the live runtime must be
+   used for API smoke coverage, create `{"op":"add",…,"test":true}`, assert it round-trips with
+   `pingsToBoss=0` and its ID is absent from the Boss pane, register the exact returned ID immediately
+   in trap/finally cleanup, and delete it on success, failure, signal, or interruption. An isolated
+   signal miss or any live-board/Boss pollution = FAIL.
 3b. 🔴 **Agent completion → Boss NOTIFICATION (drift-guard, folded 2026-07-03 CEO — the live
    substrate bug the one-shot gates MISSED).** END-TO-END, exercising the REAL Stop hook: spawn a
-   throwaway agent with `boss_id=<this node's Boss>` (`mp spawn … --boss <BOSS_AGENT>`), send it a
-   one-line prompt, and let it finish a turn. *Expect:* within ~30s the **Boss pane receives
+   throwaway agent against a dedicated disposable `mc-verify:Boss` pane, using
+   `boss_id=<host>/verify:Boss` (NEVER this node's live Boss), send it a one-line prompt, and let it
+   finish a turn. *Expect:* within ~30s the **disposable Boss pane receives
    `[AGENT NOTIFICATION] <agent_id> finished:`** (key off pane delivery, exactly like J3). This is
    the §4 Stop-hook JOIN proof asserted for real — NOT by reading the hook source, but by driving a
    spawn→Stop→deliver round-trip. **Why this gate exists:** the emit-event hook fired and `POST
@@ -1675,7 +1735,8 @@ exit 0.**
    server stored `type=null` and the client silently dropped the send — the Boss was never told an
    agent finished, and no earlier gate caught it because none drove the completion→notification path.
    The gate MUST FAIL if the notification does not reach the pane, even though the hook "ran" and the
-   submit returned a `task_id`. (A from-memory build that emits `action`-only, or a golden baked from
+   submit returned a `task_id`. Kill the disposable Boss session and all throwaway agent artifacts in
+   trap/finally. (A from-memory build that emits `action`-only, or a golden baked from
    one, trips this gate.)
    **PLUS the SPAWN ENV-EXPORT sub-assertion (folded 2026-07-05, CEO card a3a446afd8369654 — a
    DIFFERENT root cause with the SAME symptom: the notification silently vanishes).** Before/besides
@@ -1732,6 +1793,20 @@ exit 0.**
    `attach_base` and `attach_url`, AND the rendered HUD MUST contain that `attach_url` as a
    clickable link in the Boss row. An empty ATTACH cell for a live, heartbeating agent is a
    **false-green** and is rejected.
+8a. **Terminal Graph is live, size-neutral, persistent, interactive, and dynamic (§5.7b/§7.6).**
+    Open `/terminal-graph` in real Chromium AND WebKit. Assert its JSON contains the current Boss
+    plus every live non-retired Boss-owned engineer and exactly the roster-derived edges. Every node
+    must have a connected `:7682` ttyd iframe (not an image/canvas/text snapshot). Record a large
+    writable operator pane's `#{window_width}x#{window_height}`, open a deliberately small graph
+    viewer, then re-record the geometry and `tmux list-clients -F '#{client_flags}'`: geometry is
+    byte-identical and the observer includes BOTH `read-only` and `ignore-size`. Keep the page open
+    across two metadata refreshes and assert an unchanged node's iframe DOM identity/src plus its
+    active resource/WebSocket connection are unchanged (no reconnect). Click a node; the full-screen
+    iframe MUST use `:7681`, land on that exact target, accept a reversible typed marker, and leave
+    the small `:7682` observer connected. Finally spawn a throwaway Boss-owned agent and retire it
+    through the normal lifecycle: its node+edge appear then disappear within the polling bound,
+    without replacing unaffected nodes. Save Chromium + WebKit screenshots and a short journey
+    recording. Existing `/wall`, `/dashboard`, and `/` still return/render successfully afterward.
 9. **PLOW identity.** BOTH `:9933/` and `:9900/dashboard` carry **Volt `#D5EF8A`** + the Plow
    typefaces (`Instrument Serif`/`DM Sans`/`DM Mono`).
 9a. **Wordmark/titles (CEO 2026-06-25, reconciled to match live).** TODO `:9933/`: the browser-TAB
@@ -2281,10 +2356,22 @@ exit 0.**
     an assigned open legacy card with `ownerHistory:null` and `ownerNeedsReplacement:null`, run the
     startup migration twice. Assert the assignee/state/comments are byte-for-byte unchanged,
     `ownerNeedsReplacement=false`, and exactly one `migrated_existing_owner` event exists with
-    `by:"system"` and a migration-time timestamp. Every Verify-created real-board card ID and agent
-    ID MUST be registered in trap/finally cleanup; after success OR failure, assert zero test cards,
+    `by:"system"` and a migration-time timestamp. Every Verify-created live-board card MUST carry
+    `test:true` (unless it lives wholly inside a sandbox board); every fixture card ID and agent ID is
+    registered in trap/finally cleanup immediately after creation/spawn and MUST NOT ping the live Boss; after success
+    OR failure, assert zero test cards created by this run,
     zero test `/agents` rows, zero test roster records, and zero test tmux sessions/windows. Never use
-    generic text matching to delete cards; cleanup only exact IDs created by that run.
+    generic text matching to delete cards; cleanup only exact IDs created by that run. Snapshot the
+    pre-run set of `test:true` IDs and, in the exit trap, delete the exact set difference as a guard
+    against interruption between API return and shell-array registration. Every test engineer uses a
+    reserved fixture ID, is registered for cleanup BEFORE spawn, points completion notifications to a
+    disposable `mc-verify:Boss`, and on every exit is killed/unregistered with its exact roster row,
+    `status/mc-*/<tab>.json`, recorder, tmux window/session, and disposable Boss session removed.
+    J25c MUST hard-refuse unless BOTH its board and export repo paths are under `/tmp` (or equivalent
+    OS temp root), pass `BOARD_PATH`/`EXPORT_REPO` only on each subprocess invocation (never export
+    them into the verifier shell), and set `MYPEOPLE_SUPPRESS_BOSS_NOTIFY=1`; therefore it can touch
+    neither the live board/export repo nor the live Boss. Assert the live board hash/count and live
+    export HEAD are unchanged after that gate.
 52. 🔴 **SAFE MARKDOWN COMMENTS (CEO 2026-07-10).** In Chromium and WebKit, render an isolated
     comment fixture containing headings, bold, italic, inline code, a fenced code block, ordered and
     unordered lists, a blockquote, a safe HTTPS link, a GFM table with aligned columns and inline
