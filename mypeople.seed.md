@@ -890,11 +890,29 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
   `idle` **muted/dimmed** (`rgba(240,240,232,0.45)`), `blocked` in **danger `#FF3B30`**, `ready` in
   **Volt `#D5EF8A`**. Polls so the badge flips live (≤~3s) as agents work/stop.
 - **Terminal Wall — `GET /wall` (page) + `GET /todo/wall` (tile JSON, `X-Queue-Secret`), served by the
-  todo-server `:9933`:** one tile per live agent; tile `data-state` = the mapped display state; the SAME
-  badge colors; **working-first sort**; filter chips (`all`/`working`/`idle`); idle tiles dimmed
-  (`opacity .4`, grayscale) with an `idle` watermark; working tiles carry the amber pulse. `/todo/wall`
-  derives each tile's state by reading that agent's status file. (Generative — build the page from the §7
-  PLOW tokens + this contract; do NOT paste bytes — Rule 42.)
+  todo-server `:9933`:** this is the validated Terminal Wall from card `d3effa2e2e66`, never an
+  agent/status list. It contains one **REAL, continuously streaming terminal window** per live agent.
+  Every small viewer is a persistent `:7682` ttyd iframe for the tile's exact tmux target, using the
+  §5.7b grouped `tmux attach -r` helper so tmux marks it `read-only,ignore-size`; a Wall observer must
+  never resize an operator pane. Clicking the terminal opens that exact target full-screen through the
+  writable `:7681` attach. Do not substitute screenshots, `capture-pane`, text/ANSI snapshots, fake
+  terminals, terminal-content polling, or another transport.
+- `/todo/wall` joins live `/agents` with `/roster`, excludes dead/retired entries, and returns exact
+  `target`, mapped `state`, `host`, and actual tmux `cols×rows`, plus the read-only and interactive
+  ports. Batch geometry discovery (one tmux listing, not one subprocess per tile). The tile
+  `data-state` uses the SAME badge colors; **working-first sort**; filter chips
+  (`all`/`working`/`idle`); idle tiles dim + desaturate with an `idle` watermark; working tiles carry
+  the amber pulse.
+- Render every whole pane at its real geometry and CSS-scale it down with one shared Wall scale.
+  Derive each tile/screen dimensions from `cols×rows` at that shared scale, so the iframe fills its
+  screen with only 4px per-side padding; never crop, stretch, use per-pane fit/zoom, or mutate tmux
+  window geometry. Different real pane geometries may produce different card aspect ratios.
+- Metadata refresh is keyed reconciliation by `agent_id`: update labels/state/order/filter treatment in
+  place, add an iframe only for a newly-live agent, and remove it only when that agent leaves. NEVER
+  clear/rebuild the grid or rewrite an unchanged iframe `src`; filters hide existing tiles without
+  detaching them. Existing iframe DOM identity/WebSocket therefore persists across every refresh, and
+  a metadata failure leaves already-connected terminals running. (Generative — build the page from the
+  §7 PLOW tokens + this contract; do NOT paste bytes — Rule 42.)
 
 **§7.6 — Live spatial Terminal Graph (`GET /terminal-graph` + gated
 `GET /todo/terminal-graph`; CEO 2026-07-11).** This is an ADDITIVE prototype route: `/wall`, HUD, and
@@ -1842,7 +1860,20 @@ exit 0.**
    `attach_base` and `attach_url`, AND the rendered HUD MUST contain that `attach_url` as a
    clickable link in the Boss row. An empty ATTACH cell for a live, heartbeating agent is a
    **false-green** and is rejected.
-8a. **Terminal Graph is live, size-neutral, persistent, interactive, and dynamic (§5.7b/§7.6).**
+8a. **Terminal Wall is live, size-neutral, persistent, interactive, and dynamic (§5.7b/§7.5).**
+    Open `/wall` in real Chromium AND WebKit. The current live non-retired fleet must render as real
+    connected `:7682` ttyd iframes—never text previews, images, canvases, or `capture-pane` output.
+    Assert every iframe URL contains its tile's exact target; all tiles use one identical CSS scale;
+    each whole-pane iframe stays inside `.screen`, occupies ≥92% of its area, and has ≤8px gap on
+    every side. Keep the page open across two metadata cycles and toggle working/idle/all filters:
+    unchanged iframe DOM identity, `src`, and connection stay unchanged. Record a writable operator
+    pane's geometry before/during/after opening the small Wall viewers; it must be byte-identical and
+    every Wall client must carry both `read-only` and `ignore-size`. Click a tile and assert the
+    full-screen iframe uses writable `:7681` for that same exact target. Reconcile a controlled
+    add/remove fixture without recreating unaffected iframe nodes, and trap-clean its session/status/
+    roster artifacts. Save Chromium+WebKit screenshots and recordings. `/terminal-graph`, `/`, and
+    `/dashboard` must still render afterward.
+8b. **Terminal Graph is live, size-neutral, persistent, interactive, and dynamic (§5.7b/§7.6).**
     Open `/terminal-graph` in real Chromium AND WebKit. Assert its JSON contains the current Boss
     plus every live non-retired Boss-owned engineer and exactly the roster-derived edges. Every node
     must have a connected `:7682` ttyd iframe (not an image/canvas/text snapshot). Record a large
