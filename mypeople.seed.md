@@ -913,17 +913,45 @@ terminal renderer.
   `cols`/`rows`. State treatment is working=amber pulse, idle=dim/desaturated,
   blocked=danger-red, ready=Volt.
 - Every node embeds a REAL continuously streaming ttyd `:7682` read-only client for its exact target.
-  Render at the pane's real `cols×rows` geometry, then CSS-transform it down. Compute one common
-  scale from the largest current pane and apply that SAME scale to every node — never zoom a small
+  Render at the pane's real `cols×rows` geometry, then CSS-transform it down. Choose one common
+  terminal scale and apply that SAME constant to every node — never zoom a small
   fossil geometry up independently. The complete pane remains visible; observers stay
   `read-only,ignore-size` and never mutate window geometry.
+- **FULL-BLEED VARIABLE-GEOMETRY CARDS (CEO 2026-07-11):** do not place the scaled pane inside a
+  fixed-size card. For each node compute its iframe pixel geometry from that pane's real `cols×rows`
+  and the ONE shared terminal scale, then derive `.screen` and `.node` width/height from the resulting
+  rendered width/height. Cards therefore legitimately have different dimensions/aspect ratios.
+  The shell adds only compact title chrome and at most **6–8px** screen padding per side; the
+  transformed iframe occupies **≥92% of the inner screen area**, is fully visible, and has no clipping
+  or crop. Never achieve full-bleed by per-pane scaling/zoom, stretching, hiding overflow across the
+  terminal, or rendering only a corner. The iframe keeps its real whole-pane geometry; only the common
+  scale is applied.
 - Reconcile topology by `agent_id` on a short metadata interval (≤3s): update state/edges/labels in
   place, add only newly live nodes, remove only retired/dead nodes. NEVER clear/rebuild the node
   container: unchanged iframe DOM identities and ttyd WebSockets MUST persist across every refresh.
   A topology fetch failure says metadata is offline while already connected terminals remain alive.
-- Nodes are draggable via their title bars; store positions locally by full `agent_id`. New engineers
-  appear around Boss in a radial default layout, retired engineers disappear, and edges update live.
-  Canvas pan never steals node drag.
+- **STRICT TOP-DOWN REPORTING HIERARCHY (CEO 2026-07-11; supersedes the radial layout):** derive
+  depth recursively from roster edges. The one `is_master` Boss is ALWAYS depth 0 at top-center.
+  Every direct Boss worker is depth 1 on the single row immediately below Boss, evenly spaced by
+  default. Every child/subagent is depth(parent)+1 on the next row below its own parent, recursively;
+  no worker may render above or on the same row as its parent. Default nodes within each depth row
+  are evenly spaced and deterministically ordered. Every connector starts at the bottom-center of
+  the parent, ends at the top-center of the child, and flows visually downward (vertical cubic/elbow,
+  never an upward/radial edge). `Fit Fleet` computes bounds across every depth and frames the entire
+  top-down tree with the Boss row at the top; `Boss` recenters depth 0 near the top of the viewport.
+  Layout uses each node's computed variable `width`/`height`, not fixed constants: pack every depth
+  row with an equal inter-card gap and no overlap, advance the next row by the previous row's maximum
+  card height plus a vertical gutter, constrain horizontal drag between its row neighbors so cards
+  cannot collide/cross, anchor edges using the actual parent/child box centers, and compute Fit Fleet
+  from the union of actual variable boxes.
+- Nodes remain draggable via their title bars, but drag changes **horizontal X only** within the
+  node's assigned depth row. Vertical Y is a pure function of depth and cannot be user-authored.
+  Persist only X by full `agent_id`; use a versioned storage key so legacy radial `{x,y}` data cannot
+  leak into this layout. On every reconcile/reload recompute depth and overwrite Y before rendering,
+  so stale or malicious persisted positions can never cross above a parent or into another depth.
+  Boss itself remains fixed at top-center. New engineers enter their computed row, retired engineers
+  disappear, descendants re-depth if roster parentage changes, and edges update live. Canvas pan
+  never steals node drag.
 - Clicking the terminal surface opens an in-page full-screen iframe on writable ttyd `:7681`, using
   the exact same target and the isolated grouped-session helper from §5.7. It is genuinely
   interactive; close/Escape unloads only this writable iframe. The small observer remains read-only
@@ -1807,6 +1835,20 @@ exit 0.**
     through the normal lifecycle: its node+edge appear then disappear within the polling bound,
     without replacing unaffected nodes. Save Chromium + WebKit screenshots and a short journey
     recording. Existing `/wall`, `/dashboard`, and `/` still return/render successfully afterward.
+    Also assert the strict hierarchy in Chromium and WebKit: Boss has `depth=0`, fixed top-center;
+    every edge satisfies `child.depth == parent.depth + 1` and `child.top > parent.bottom`; all direct
+    workers share the depth-1 Y coordinate and start evenly spaced. Attempt a diagonal/upward title-bar
+    drag and reload: X changes/persists, but Y/depth remain exact and no node crosses rows. Inject a
+    legacy localStorage record with an invalid negative/foreign-depth Y and reload; it is ignored.
+    `Fit Fleet` leaves every node at every depth inside the viewport and every connector path runs
+    from parent bottom to child top. These assertions MUST NOT replace/reconnect ttyd iframes.
+    For every current Boss/worker card, DOM geometry MUST also prove: iframe bounding box is fully
+    contained by `.screen`; left/right/top/bottom screen gap is ≤8px each (excluding compact title
+    chrome); iframe area / inner-screen area ≥0.92; card width/height equal the derived scaled
+    `cols×rows` geometry plus declared padding/chrome; and panes with differing real geometry produce
+    differing card dimensions/aspect ratios. Assert row boxes do not intersect after default layout,
+    attempted drag, reload, and Fit Fleet. A fixed 460×398-style shell, per-pane zoom, crop, or black
+    moat around a tiny terminal = FAIL. Run these assertions and screenshots in Chromium + WebKit.
 9. **PLOW identity.** BOTH `:9933/` and `:9900/dashboard` carry **Volt `#D5EF8A`** + the Plow
    typefaces (`Instrument Serif`/`DM Sans`/`DM Mono`).
 9a. **Wordmark/titles (CEO 2026-06-25, reconciled to match live).** TODO `:9933/`: the browser-TAB
