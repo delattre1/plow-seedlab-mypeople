@@ -919,6 +919,14 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
 TODO remain present and behaviorally unchanged. It reuses §5.7b rather than inventing another
 terminal renderer.
 
+- **Installed-build/startup durability:** the distributable `mypeople` package's bundled runtime
+  MUST contain `terminal-graph.html`, the `/terminal-graph` + `/todo/terminal-graph` server routes,
+  and the §7.5 live `wall.html`—not merely the canonical seed prose. `mypeople up` materializes that
+  bundled runtime into `INSTALL_DIR`; therefore packaging or starting an older bundle must never
+  overwrite a newer installed Graph/Wall with status-only or route-missing assets. Verification must
+  run `mypeople up --detach`, restart `todo-server.py` through the supervisor, and reassert both pages,
+  both metadata APIs, real `:7682` panes, and exact `:7681` fullscreen attach after the restart.
+
 - The page is an infinite dark Plow canvas (subtle dot grid, Volt/Grove visual language) with pan,
   pointer-centered wheel zoom, "fit fleet", and "Boss" recenter controls. The ONLY canvas element
   type is a terminal window. No workflow nodes, generic status cards, screenshots, `capture-pane`,
