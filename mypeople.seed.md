@@ -500,6 +500,16 @@ Code shows a **"Accessing workspace … — trust this folder?"** dialog the fir
 directory not yet trusted — keyed PER exact path in `~/.claude.json` under `projects`. Pre-trusting
 only the MAIN cwd is not enough: a spawn in a NEW/different cwd (e.g. `~/mypeople/run/eng`)
 re-triggers the dialog and BLOCKS the agent.
+
+Codex has the equivalent gate and supports `projects.<path>.trust_level = "trusted"`. For Codex,
+the generated `mp spawn` MUST pass a process-local `--config` override containing only the exact,
+realpath-resolved launch cwd, for example
+`--config 'projects={"/managed/cwd"={trust_level="trusted"}}'`. Apply that override only when the
+resolved cwd is equal to or below `$INSTALL_DIR/run/eng` or `$INSTALL_DIR/run/boss`. Do not persist
+it in `~/.codex/config.toml`, do not trust `$HOME`, and do not add it for an explicit cwd outside
+those managed roots. Resolve symlinks before the boundary check so a link beneath `run/eng` cannot
+trust an outside directory. This loads project-local Codex config/hooks/rules for intended MyPeople
+workspaces without changing unrelated trust state or approvals/sandbox policy.
 > **🔴 THIS IS THE PRODUCT'S OWN JOB — a real user installs mypeople on a VANILLA machine with NO
 > pre-seeded trust, so the SEED'S INSTALL + the generated `mp` MUST handle folder-trust themselves
 > (re-folded 2026-06-18, CEO). Do NOT assume any substrate/golden-image bake — that only helps OUR
@@ -516,7 +526,11 @@ re-triggers the dialog and BLOCKS the agent.
    `python3 -c 'import json,os;d=json.load(open(os.path.expanduser("~/.claude.json")));print(d["projects"].get(os.path.expanduser("~/mypeople/run/boss"),{}).get("hasTrustDialogAccepted"))'`
    → MUST print `True` after the install (i.e. the install pre-trusted the Boss cwd). And `mp spawn`
    in a brand-new `mkdir`'d dir MUST reach the bypass banner with no trust prompt.
-3. (Harness-only, NOT the product's mechanism) OUR golden image may also bake trust for fast OUR-side
+3. **For Codex, `mp spawn` MUST construct the scoped process-local override described above.** A
+   fresh managed cwd reaches the usable composer without a trust prompt or injected input; the same
+   fresh cwd launched directly without the override prompts; and a fresh cwd outside both approved
+   managed roots receives no override and prompts normally.
+4. (Harness-only, NOT the product's mechanism) OUR golden image may also bake trust for fast OUR-side
    spins — but **this MUST NOT be what makes the product pass**; J35 tests on a vanilla trust state.
 
 **5.6 Tailnet on a no-systemd container = userland `tailscaled` on a custom socket + a default-
@@ -1681,6 +1695,8 @@ Bare host (shell + authed `claude`). State intent; adapt commands to the host.
    `projects[$HOME|$INSTALL_DIR|$INSTALL_DIR/run|/run/eng|/run/boss|/bin].hasTrustDialogAccepted=true`
    on this (possibly fresh) `~/.claude.json`** — the install does this itself so a vanilla user's
    Boss spawn never hits the trust dialog (do NOT rely on any external/golden-image seeding).
+   Do not add global Codex trust here: Codex trust is supplied per process for the exact managed cwd
+   by generated `mp spawn` (§5.5c #3), leaving all outside paths and existing user entries unchanged.
 4. **GENERATE every component** (§11 — servers, the TWO pages, `mp`, supervisor, hooks, doctrine,
    `~/.tmux.conf`) from the spec — write the code now, to the §4–§8 contracts. **The UI is generated
    from the PLOW tokens (§7) + the §A.2 feature contracts** (truly generative — no pasted components;
@@ -2174,6 +2190,12 @@ exit 0.**
     folder?"/onboarding prompt and WITHOUT blocking; agent ends `alive`. **The golden-image bake (or
     any externally-seeded trust) MUST NOT be what makes this pass** — that's why we wipe first. A
     spawn that hangs on a trust dialog after the wipe = the product doesn't self-handle trust = FAIL.
+    For the Codex backend, do not wipe or rewrite the user's config. Instead create two genuinely
+    fresh cwds under the approved managed roots and assert both generated launch commands contain
+    one exact resolved-path `projects={...trust_level="trusted"}` override and both reach a usable
+    composer with zero trust question. Then create a fresh outside-root cwd and assert generated
+    `mp spawn --cwd` contains no trust override and direct Codex startup still presents the trust
+    question. Include a managed-root symlink to an outside cwd in the negative test.
 36. **Nested spawn does NOT disconnect (engineer-from-engineer, §4 mp-spawn, CEO 2026-06-18).** The
     CEO bug: an engineer born from a TODO comment runs `mp spawn` to create ANOTHER engineer and the
     ttyd/tmux session DROPS. This gate proves a nested spawn leaves everything intact. (a) Record the
