@@ -1038,7 +1038,20 @@ HUD and TODO. It reuses §5.7b rather than inventing another terminal renderer.
   pointer-centered wheel zoom, "fit fleet", and "Boss" recenter controls. The ONLY canvas element
   type is a terminal window. No workflow nodes, generic status cards, screenshots, `capture-pane`,
   ANSI/text snapshots, or terminal-content polling.
-- Source of truth is live `/agents` joined to `/roster`: include exactly live, non-retired agents.
+- **Enumeration source of truth is directly verified live canonical tmux windows, not the volatile
+  `/agents` map (CEO under-count bug 2026-07-13).** Queue-server keeps `AGENTS` in memory, so after a
+  daemon/tmux generation restart it may contain only the one or two agents that re-registered even
+  while 15+ real `mc-*` windows remain alive. `GET /todo/terminal-graph` MUST take one bounded
+  `tmux list-windows -a` snapshot, include every non-dead canonical `mc-*` agent window, and merge
+  `/agents` metadata plus durable roster/status files onto those rows. Exclude `_v_*`/`_vro_*`
+  viewer groups, test/verify fixtures, dead panes, retired roster entries, and unmanaged scratch
+  windows. A successfully enumerated local tmux snapshot wins over stale local `/agents` rows;
+  registered nonlocal agents remain eligible. Use the same snapshot for `cols`/`rows` rather than a
+  serial per-agent `display-message` loop. This both prevents silent under-counting and keeps a large
+  fleet load bounded. The Graph header count MUST equal rendered terminal nodes and the real eligible
+  canonical tmux-window count; its `mc-main:*` subset MUST equal `tmux list-windows -t mc-main`.
+  `/agents` alone is never sufficient discovery truth.
+  Include exactly live, non-retired agents after that merge.
   The `is_master` Boss is initially centered and visually dominant. Draw one edge for every live
   node whose roster `boss_id` is another live node; therefore Boss→owned-engineer topology comes
   from roster data, never name guessing or hardcoding. The endpoint includes `agent_id`, `boss_id`,
@@ -2046,7 +2059,14 @@ exit 0.**
     the small `:7682` observer connected. Finally spawn a throwaway Boss-owned agent and retire it
     through the normal lifecycle: its node+edge appear then disappear within the polling bound,
     without replacing unaffected nodes. Save Chromium + WebKit screenshots and a short journey
-    recording. Existing `/dashboard` and `/` still return/render successfully afterward.
+    recording. Before the browser journey, simulate a queue restart with **15 live canonical tmux
+    windows** while `AGENTS` is (a) empty and then (b) contains only two rows; both cases MUST return
+    all 15 nodes, exclude dead/test/viewer windows, preserve partial metadata, and use one
+    `list-windows` call with no serial `display-message` loop. In the real cold browser, assert the
+    visible header terminal count equals both rendered iframes and eligible live `mc-*` windows, and
+    the Graph `mc-main:*` subset equals the real live `mc-main` window count. Under-count is a hard
+    failure even if every returned iframe streams. Existing `/dashboard` and `/` still
+    return/render successfully afterward.
     Repeat the live-pane assertion on all configured front doors: direct TODO `:9933`, symmetric
     queue `:9900`, tailnet HTTPS, and the authenticated shared/Funnel origin. For HTTPS, every iframe
     must use same-origin `/ttyd-ro/`, every corresponding `wss` connection must remain open and

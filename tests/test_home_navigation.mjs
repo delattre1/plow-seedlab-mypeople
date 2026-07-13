@@ -3,6 +3,7 @@
 // Usage: node tests/test_home_navigation.mjs http://127.0.0.1:9933 [other-base-url ...]
 //        node tests/test_home_navigation.mjs --graph-only https://public.example/terminal-graph
 const { chromium, webkit } = await import(process.env.PLAYWRIGHT_PATH || "playwright");
+import { execFileSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const graphOnly = args[0] === "--graph-only";
@@ -10,7 +11,29 @@ const bases = graphOnly ? args.slice(1) : args;
 const httpPassword = process.env.MYPEOPLE_HTTP_PASSWORD || "";
 const proofPath = process.env.MYPEOPLE_PROOF_PATH || "";
 const graphSettleMs = Number(process.env.MYPEOPLE_GRAPH_SETTLE_MS || 30000);
+const skipVisualAssert = process.env.MYPEOPLE_SKIP_VISUAL_ASSERT === "1";
 if (!bases.length) throw new Error("usage: test_home_navigation.mjs [--graph-only] <url> [url ...]");
+
+function localTmuxCounts() {
+  try {
+    const output = execFileSync("tmux", ["list-windows", "-a", "-F",
+      "#{session_name}\t#{window_name}\t#{pane_dead}"], {
+      encoding: "utf8", env: { ...process.env, TMUX: "" }, timeout: 5000,
+    });
+    const windows = output.trim().split("\n").filter(Boolean).map(line => line.split("\t"))
+      .filter(([session, window, dead]) => {
+        if (!session.startsWith("mc-") || dead === "1") return false;
+        const sid = session.slice(3).toLowerCase();
+        const win = window.toLowerCase();
+        return !sid.startsWith("_v") && !sid.startsWith("test") && !sid.startsWith("verify") &&
+          !win.startsWith("_v") && !win.startsWith("test-") && !win.startsWith("verify-") &&
+          !win.startsWith("graph-test");
+      });
+    return { total: windows.length, main: windows.filter(([session]) => session === "mc-main").length };
+  } catch (_) {
+    return null;
+  }
+}
 
 async function assertWallRemoved(browser, engine, base, credentials) {
   const page = await browser.newPage({
@@ -77,11 +100,25 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
         if (await page.title() !== "MyPeople · Terminal Graph") throw new Error(`${engine} ${base}: existing Terminal Graph did not render`);
         if (await page.locator('a[href="/wall"]').count()) throw new Error(`${engine} ${base}: Terminal Graph still links to Wall`);
         await page.waitForFunction(() => !document.querySelector("#counts")?.textContent?.includes("connecting"));
-        const counts = await page.locator("#counts").innerText();
-        if (!/\d+ terminals.*\d+ shared tasks/i.test(counts)) throw new Error(`${engine} ${base}: Graph data did not load (${counts})`);
+        const initialCounts = await page.locator("#counts").innerText();
+        if (!/\d+ terminals.*\d+ shared tasks/i.test(initialCounts)) throw new Error(`${engine} ${base}: Graph data did not load (${initialCounts})`);
         await page.waitForFunction(() => document.querySelectorAll(".node iframe").length > 0);
         await page.waitForTimeout(graphSettleMs);
+        const settledCounts = await page.locator("#counts").innerText();
+        const headerCount = Number(settledCounts.match(/(\d+) terminals/i)?.[1]);
         const iframeSources = await page.locator(".node iframe").evaluateAll(frames => frames.map(frame => frame.src));
+        if (headerCount !== iframeSources.length) {
+          throw new Error(`${engine} ${base}: header says ${headerCount} terminals but Graph rendered ${iframeSources.length}`);
+        }
+        if (["127.0.0.1", "localhost"].includes(new URL(page.url()).hostname)) {
+          const expected = localTmuxCounts();
+          const graphTargets = await page.evaluate(() => graph.nodes.map(node => node.target));
+          const mainCount = graphTargets.filter(target => target.startsWith("mc-main:")).length;
+          if (expected && (headerCount !== expected.total || mainCount !== expected.main)) {
+            throw new Error(`${engine} ${base}: Graph/header under-counted live tmux windows ` +
+              `(header=${headerCount}, graph-main=${mainCount}, tmux-total=${expected.total}, tmux-main=${expected.main})`);
+          }
+        }
         const isHttps = new URL(page.url()).protocol === "https:";
         if (isHttps && iframeSources.some(src => new URL(src).pathname.indexOf("/ttyd-ro/") !== 0)) {
           throw new Error(`${engine} ${base}: HTTPS Graph did not use same-origin /ttyd-ro/`);
@@ -101,22 +138,28 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
         if (reconnectFrames.length) {
           throw new Error(`${engine} ${base}: ${reconnectFrames.length}/${iframeSources.length} terminal iframes show reconnect`);
         }
-        const bossSrc = await page.locator('.node[data-master="true"] iframe').getAttribute("src");
-        const bossFrame = page.frames().find(frame => frame.url() === bossSrc);
-        if (!bossFrame) throw new Error(`${engine} ${base}: Boss terminal iframe context is missing`);
-        const bossScreen = page.locator('.node[data-master="true"] .screen');
-        const bossBox = await bossScreen.boundingBox();
-        if (!bossBox || bossBox.width < 20 || bossBox.height < 20) {
-          throw new Error(`${engine} ${base}: Boss xterm screen has no rendered area`);
-        }
-        // xterm's active renderer is WebGL, whose canvas buffer is intentionally not readable
-        // after compositing. An untouched element screenshot is the browser's rendered truth.
-        // A uniform black xterm PNG has very low bytes-per-rendered-pixel density; real terminal
-        // glyphs add enough spatial entropy to remain comfortably above this conservative floor.
-        const bossPng = await page.screenshot({ clip: bossBox });
-        const bossPaintDensity = bossPng.length / (bossBox.width * bossBox.height);
-        if (bossPaintDensity < 0.02) {
-          throw new Error(`${engine} ${base}: Boss terminal stayed visually blank (PNG ${bossPng.length} bytes, density ${bossPaintDensity.toFixed(4)})`);
+        if (!skipVisualAssert) {
+          const bossSrc = await page.locator('.node[data-master="true"] iframe').getAttribute("src");
+          const bossFrame = page.frames().find(frame => frame.url() === bossSrc);
+          if (!bossFrame) throw new Error(`${engine} ${base}: Boss terminal iframe context is missing`);
+          const bossBox = await page.evaluate(() => {
+            const screen = document.querySelector('.node[data-master="true"] .screen');
+            if (!screen) return null;
+            const box = screen.getBoundingClientRect();
+            return { x: box.x, y: box.y, width: box.width, height: box.height };
+          });
+          if (!bossBox || bossBox.width < 20 || bossBox.height < 20) {
+            throw new Error(`${engine} ${base}: Boss xterm screen has no rendered area`);
+          }
+          // xterm's active renderer is WebGL, whose canvas buffer is intentionally not readable
+          // after compositing. An untouched element screenshot is the browser's rendered truth.
+          // A uniform black xterm PNG has very low bytes-per-rendered-pixel density; real terminal
+          // glyphs add enough spatial entropy to remain comfortably above this conservative floor.
+          const bossPng = await page.screenshot({ clip: bossBox });
+          const bossPaintDensity = bossPng.length / (bossBox.width * bossBox.height);
+          if (bossPaintDensity < 0.02) {
+            throw new Error(`${engine} ${base}: Boss terminal stayed visually blank (PNG ${bossPng.length} bytes, density ${bossPaintDensity.toFixed(4)})`);
+          }
         }
         const identitiesPersist = await page.evaluate(async () => {
           const before = [...document.querySelectorAll(".node iframe")];
