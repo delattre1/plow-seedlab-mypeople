@@ -598,6 +598,17 @@ detached interval. The observer service is persistent and supervised independent
 polling. Its browser client stays connected until its node retires or the page closes — metadata
 refresh MUST NOT recreate existing iframes/WebSockets.
 
+🔴 **Observer capacity is a product invariant, not an OS-default accident (CEO bug 2026-07-13).**
+Each persistent ttyd viewer consumes several descriptors (HTTP/WebSocket, pty, kqueue, pipes). A
+normal fleet shown in two browser tabs can exceed macOS launchd's default soft `maxfiles=256`, at
+which point ttyd still serves its HTML but logs `pty_spawn: 24 (Too many open files)` / `kqueue():
+Too many open files` and EVERY tile falls into `Press Enter to Reconnect`. The daemon supervisor
+MUST raise its inherited descriptor floor before spawning ttyd (`ulimit -n 8192`, configurable
+upward), and a macOS LaunchAgent MUST set `SoftResourceLimits/NumberOfFiles=8192` with a hard limit
+of at least 65536. Restart only the observer ttyd to apply this; canonical tmux sessions/windows are
+never killed. Verify the effective process limits and open two current-fleet canvases concurrently;
+every WebSocket must receive frames and the ttyd log must contain no new `EMFILE`/`pty_spawn: 24`.
+
 **5.8 Daemons are detached + pid-tracked + idempotently restartable.** Start with `setsid …
 </dev/null &`, write a pidfile, and a reinstall stops the prior by pidfile then restarts — never
 leave a duplicate. A self-install must not kill the very channel that is driving it: stop a
@@ -1026,9 +1037,14 @@ terminal renderer.
   interactive; close/Escape unloads only this writable iframe. The small observer remains read-only
   and connected underneath.
 - Page and JSON are served symmetrically from the TODO front door, browser-session authenticated in
-  the same way as `/wall`; terminal URLs derive the browser-reachable hostname, not a baked server
-  loopback. Generate a dedicated `terminal-graph.html` plus the todo-server route/endpoint from this
-  contract; do not replace `wall.html`.
+  the same way as `/wall`. On direct **HTTP** front doors, terminal URLs derive the browser-reachable
+  hostname plus `:7682`/`:7681`, never a baked server loopback. On any **HTTPS** front door, raw
+  `https://host:7682` is forbidden (ttyd is plain HTTP and the TLS/WebSocket connection fails): use
+  same-origin `/ttyd-ro/` and `/ttyd-rw/` URLs instead. The ingress/gateway maps those prefixes to
+  loopback ttyd `7682`/`7681`, strips only the prefix, and forwards HTTP plus WebSocket Upgrade
+  bidirectionally, so ttyd receives `/`, `/token`, and `/ws?...` unchanged. Generate a dedicated
+  `terminal-graph.html` plus the todo-server route/endpoint from this contract; apply the identical
+  URL transport rule to `wall.html`, but do not replace the Wall.
 
 🔴 **§7.0 — EXACT TODO board layout, component-for-component (CEO 2026-06-25; MATCH live `127.0.0.1:9933`
 1:1; GENERATE from this spec — do NOT paste CSS/HTML, Rule 42; do NOT ship a leaner page). The served
@@ -1298,8 +1314,11 @@ This is no longer "preference #1, best" — it is THE required implementation:**
     no scheme); the **TODO↗ link on the HUD is `href="/"`**. Because they are same-origin relative
     paths, ANY port-forward / reverse-proxy "just works" — there is nothing to derive.
   - **Shared/path-scoped PUBLIC ingress:** when an existing Funnel or reverse proxy terminates on
-    another service at `/`, preserve that unrelated root and route MyPeople `/terminal-graph` plus
-    its `/todo` prefix through an authentication gateway—not directly to the TODO server. This is a
+    another service at `/`, preserve that unrelated root and route MyPeople `/terminal-graph`, its
+    `/todo` prefix, and terminal prefixes `/ttyd-ro` + `/ttyd-rw` through an authentication
+    gateway—not directly to the TODO/ttyd servers. The terminal prefixes MUST enforce the same Basic
+    credentials on their HTML/token/WebSocket paths, strip the public prefix upstream, and relay
+    WebSocket Upgrade frames continuously to `127.0.0.1:7682/7681`. This is a
     security boundary: serving a TODO page mints `mp_session`, so a direct public proxy silently logs
     every anonymous visitor into the real board. Anonymous `/terminal-graph` MUST return 401 with an
     authentication challenge and MUST NOT emit `Set-Cookie`; an anonymous or cookie-only `/todo/*`
@@ -1335,7 +1354,8 @@ HUD↗ href is EXACTLY `/dashboard` and the adjacent Terminal Graph↗ href is E
 Terminal Graph markers — proving both routes work end-to-end behind a port shift; when a configured
 PUBLIC shared/Funnel ingress exists, first assert anonymous `/terminal-graph` is 401 with no
 `Set-Cookie` and anonymous `/todo/board` + `/todo/terminal-graph` are 401, then authenticate and
-assert those same three paths return 200 with live data. Prove the resulting `mp_session` alone,
+assert those same three paths return 200 with live data. Also assert authenticated `/ttyd-ro/` and
+its `wss://…/ttyd-ro/ws?...` upgrade stream frames, while their anonymous requests get 401. Prove the resulting `mp_session` alone,
 without gateway credentials, is still rejected and the unrelated `/` handler remains healthy and
 unchanged; (c) **grep the full served
 bytes of `/` and `/dashboard` for any `127.0.0.1`/`localhost`/`:9900`/`:9933` literal in an href/src/
@@ -1950,6 +1970,14 @@ exit 0.**
     through the normal lifecycle: its node+edge appear then disappear within the polling bound,
     without replacing unaffected nodes. Save Chromium + WebKit screenshots and a short journey
     recording. Existing `/wall`, `/dashboard`, and `/` still return/render successfully afterward.
+    Repeat the live-pane assertion on all configured front doors: direct TODO `:9933`, symmetric
+    queue `:9900`, tailnet HTTPS, and the authenticated shared/Funnel origin. For HTTPS, every iframe
+    must use same-origin `/ttyd-ro/`, every corresponding `wss` connection must remain open and
+    receive frames, and fullscreen resolution must select `/ttyd-rw/`; zero raw `https://host:7682`,
+    mixed-content, failed Upgrade, or reconnect text is allowed. Open enough simultaneous current-
+    fleet viewers to exceed 256 descriptors; assert effective ttyd `maxfiles>=8192`, no new
+    `Too many open files`, every node streaming, all `_vro_*` clients `read-only,ignore-size`, and
+    the operator geometry byte-identical.
     Also assert the strict hierarchy in Chromium and WebKit: Boss has `depth=0`, fixed top-center;
     every edge satisfies `child.depth == parent.depth + 1` and `child.top > parent.bottom`; all direct
     workers share the depth-1 Y coordinate and start evenly spaced. Attempt a diagonal/upward title-bar

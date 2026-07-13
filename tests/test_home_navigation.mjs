@@ -29,6 +29,13 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
         viewport: graphOnly && proofPath && engine === "chromium" ? { width: 1280, height: 720 } : { width: 320, height: 720 },
         ...(graphOnly && httpPassword ? { httpCredentials: { username: "mypeople", password: httpPassword } } : {}),
       });
+      const terminalSockets = [];
+      page.on("websocket", socket => {
+        const item = { url: socket.url(), frames: 0, closed: false };
+        terminalSockets.push(item);
+        socket.on("framereceived", () => item.frames++);
+        socket.on("close", () => item.closed = true);
+      });
       const response = await page.goto(base, { waitUntil: "domcontentloaded" });
       if (!response || response.status() !== 200) throw new Error(`${engine} ${base}: page did not return 200`);
 
@@ -38,6 +45,31 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
         await page.waitForFunction(() => !document.querySelector("#counts")?.textContent?.includes("connecting"));
         const counts = await page.locator("#counts").innerText();
         if (!/\d+ terminals.*\d+ shared tasks/i.test(counts)) throw new Error(`${engine} ${base}: Graph data did not load (${counts})`);
+        await page.waitForFunction(() => document.querySelectorAll(".node iframe").length > 0);
+        await page.waitForTimeout(3000);
+        const iframeSources = await page.locator(".node iframe").evaluateAll(frames => frames.map(frame => frame.src));
+        const isHttps = new URL(page.url()).protocol === "https:";
+        if (isHttps && iframeSources.some(src => new URL(src).pathname.indexOf("/ttyd-ro/") !== 0)) {
+          throw new Error(`${engine} ${base}: HTTPS Graph did not use same-origin /ttyd-ro/`);
+        }
+        if (!isHttps && iframeSources.some(src => new URL(src).port !== "7682")) {
+          throw new Error(`${engine} ${base}: direct Graph did not use read-only ttyd :7682`);
+        }
+        const streaming = terminalSockets.filter(socket => !socket.closed && socket.frames > 0 && /\/ws\?arg=/.test(socket.url));
+        if (streaming.length !== iframeSources.length) {
+          throw new Error(`${engine} ${base}: only ${streaming.length}/${iframeSources.length} terminal WebSockets stream`);
+        }
+        const identitiesPersist = await page.evaluate(async () => {
+          const before = [...document.querySelectorAll(".node iframe")];
+          await new Promise(resolve => setTimeout(resolve, 2800));
+          const after = [...document.querySelectorAll(".node iframe")];
+          return before.length === after.length && after.every((frame, index) => frame === before[index]);
+        });
+        if (!identitiesPersist) throw new Error(`${engine} ${base}: metadata refresh recreated terminal iframes`);
+        const interactive = await page.evaluate(() => ttyUrl(rwPort, graph.nodes[0].target));
+        if (isHttps ? !interactive.startsWith("/ttyd-rw/") : new URL(interactive).port !== "7681") {
+          throw new Error(`${engine} ${base}: interactive attach transport is wrong (${interactive})`);
+        }
         if (proofPath && engine === "chromium") await page.screenshot({ path: proofPath });
         await page.close();
         continue;
