@@ -667,6 +667,18 @@ detached interval. The observer service is persistent and supervised independent
 polling. Its browser client stays connected until its node retires or the page closes — metadata
 refresh MUST NOT recreate existing iframes/WebSockets.
 
+🔴 **A fresh observer MUST receive an attach-time full repaint (CEO Boss-black bug 2026-07-13).**
+The observer helper MUST install a hook on the unique grouped view before `tmux attach -r` that calls
+`refresh-client -t "#{hook_client}"` shortly after `client-attached` (a short delayed retry is allowed
+to cover ttyd/xterm viewport negotiation). This is a tmux server-side redraw only: it sends no
+keystrokes, does not focus the canonical client, does not resize the shared window, and does not
+replace the persistent Graph iframe. Without it, the read-only/`ignore-size` client can finish its
+initial ttyd/xterm viewport negotiation after tmux's one attach snapshot; an idle Boss then remains a
+black canvas until later output, while busy engineers appear because their next output delta causes a
+paint. Opening the tile creates a separate writable client and a fresh full-size redraw, which is why
+the CEO's click appeared to fix it. Every fresh Canvas proof MUST therefore validate rendered Boss
+pixels, not merely an open/frame-receiving WebSocket and absence of reconnect text.
+
 🔴 **Observer capacity is a product invariant, not an OS-default accident (CEO bug 2026-07-13).**
 Each persistent ttyd viewer consumes several descriptors (HTTP/WebSocket, pty, kqueue, pipes). A
 normal fleet shown in two browser tabs can exceed macOS launchd's default soft `maxfiles=256`, at
@@ -2043,6 +2055,11 @@ exit 0.**
     fleet viewers to exceed 256 descriptors; assert effective ttyd `maxfiles>=8192`, no new
     `Too many open files`, every node streaming, all `_vro_*` clients `read-only,ignore-size`, and
     the operator geometry byte-identical.
+    A brand-new browser profile must also dwell for 30 seconds with **zero click, key, focus, hover,
+    or scroll interaction**, then prove the Boss iframe's xterm canvas has non-background terminal
+    glyph pixels and save the untouched screenshot. Socket frames plus `reconnect=0` are insufficient:
+    a connected but all-background Boss canvas fails. Repeat this rendered-pixel assertion through
+    both direct front doors `:9900` and `:9933` while the Boss may be idle.
     Also assert the strict hierarchy in Chromium and WebKit: Boss has `depth=0`, fixed top-center;
     every edge satisfies `child.depth == parent.depth + 1` and `child.top > parent.bottom`; all direct
     workers share the depth-1 Y coordinate and start evenly spaced. Attempt a diagonal/upward title-bar

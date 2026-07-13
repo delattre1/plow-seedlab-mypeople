@@ -9,7 +9,7 @@ const graphOnly = args[0] === "--graph-only";
 const bases = graphOnly ? args.slice(1) : args;
 const httpPassword = process.env.MYPEOPLE_HTTP_PASSWORD || "";
 const proofPath = process.env.MYPEOPLE_PROOF_PATH || "";
-const graphSettleMs = Number(process.env.MYPEOPLE_GRAPH_SETTLE_MS || 3000);
+const graphSettleMs = Number(process.env.MYPEOPLE_GRAPH_SETTLE_MS || 30000);
 if (!bases.length) throw new Error("usage: test_home_navigation.mjs [--graph-only] <url> [url ...]");
 
 async function assertWallRemoved(browser, engine, base, credentials) {
@@ -100,6 +100,23 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
         }
         if (reconnectFrames.length) {
           throw new Error(`${engine} ${base}: ${reconnectFrames.length}/${iframeSources.length} terminal iframes show reconnect`);
+        }
+        const bossSrc = await page.locator('.node[data-master="true"] iframe').getAttribute("src");
+        const bossFrame = page.frames().find(frame => frame.url() === bossSrc);
+        if (!bossFrame) throw new Error(`${engine} ${base}: Boss terminal iframe context is missing`);
+        const bossScreen = page.locator('.node[data-master="true"] .screen');
+        const bossBox = await bossScreen.boundingBox();
+        if (!bossBox || bossBox.width < 20 || bossBox.height < 20) {
+          throw new Error(`${engine} ${base}: Boss xterm screen has no rendered area`);
+        }
+        // xterm's active renderer is WebGL, whose canvas buffer is intentionally not readable
+        // after compositing. An untouched element screenshot is the browser's rendered truth.
+        // A uniform black xterm PNG has very low bytes-per-rendered-pixel density; real terminal
+        // glyphs add enough spatial entropy to remain comfortably above this conservative floor.
+        const bossPng = await page.screenshot({ clip: bossBox });
+        const bossPaintDensity = bossPng.length / (bossBox.width * bossBox.height);
+        if (bossPaintDensity < 0.02) {
+          throw new Error(`${engine} ${base}: Boss terminal stayed visually blank (PNG ${bossPng.length} bytes, density ${bossPaintDensity.toFixed(4)})`);
         }
         const identitiesPersist = await page.evaluate(async () => {
           const before = [...document.querySelectorAll(".node iframe")];
