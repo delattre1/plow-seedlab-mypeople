@@ -1040,8 +1040,13 @@ terminal renderer.
 - **`<h1>` "Priorities"** — Instrument Serif **34px**, `var(--text-dark)`, weight 400. (EXACTLY `Priorities`
   — NOT "MyPeople - Priorities". The browser `<title>` tag MAY differ; the visible H1 is `Priorities`.)
 - **Meta line `.subt`** — DM Mono **12px**, uppercase, `var(--muted-dark)`: text
-  **`Boss source-of-truth · MyPeople ·`** followed by an `a.navlink` **`HUD ↗`** in **Volt `--volt`**
-  (uppercase). The HUD link lives INLINE in this meta line (not a separate top-right button).
+  **`Boss source-of-truth · MyPeople ·`** followed by two `a.navlink` controls in the same inline
+  navigation group: **`HUD ↗`** with literal `href="/dashboard"`, then **`Terminal Graph ↗`** with
+  literal `href="/terminal-graph"`, both in **Volt `--volt`** (uppercase). Both links use ordinary
+  same-tab anchor behavior, remain keyboard focusable with a visible focus indicator, and wrap
+  without clipping or overlap on narrow viewports. They live INLINE in this meta line (not as
+  separate top-right buttons). The Graph link opens the existing §7.6 surface; never generate a
+  second terminal canvas for Home navigation.
 
 **COUNTS ROW (`.counts`, DM Mono 12px):**
 - Three **stat pills** (`border-radius:100px`, color `--muted-dark`, transparent/subtle bg): **`<n> done`**,
@@ -1270,7 +1275,9 @@ stays current. So this watcher MUST exist from the first ship and never be remov
 
 **ITEM 2 — cross-navigation (one connected system), REMOTE-USABLE behind any tunnel/proxy
 (🔴 HARD; folded 2026-06-22, break-point B3 — a hydrated node must be usable by an OUTSIDE user,
-not just on localhost):** the TODO page has a visible **HUD ↗** link and the HUD a **TODO ↗** link.
+not just on localhost):** the TODO page has visible **HUD ↗** and **Terminal Graph ↗** links in the
+same Home navigation group, and the HUD has a **TODO ↗** link. The Home Graph link reuses the
+existing §7.6 route; it does not create another graph surface or service.
 **Every absolute URL the app emits — cross-nav, `attach_base`/`attach_url`, redirects, any `Location`
 header — MUST be derived from the page's EXTERNAL origin, NEVER from a hardcoded inner port or
 `127.0.0.1`/`localhost:<inner-port>`.** A remote user reaches the node through a port-forward /
@@ -1286,42 +1293,64 @@ This is no longer "preference #1, best" — it is THE required implementation:**
     (and any HUD asset paths) are **forwarded to `127.0.0.1:<HUD_PORT>`** (default 9900) and the
     response streamed back unchanged. Both pages therefore answer on the SAME port the user reached
     (e.g. `:9933`, or any external port a proxy maps it to).
-  - The **HUD↗ link is the literal relative path `href="/dashboard"`** (no host, no port, no scheme);
-    the **TODO↗ link on the HUD is `href="/"`**. Because they are same-origin relative paths, ANY
-    port-forward / reverse-proxy "just works" — there is nothing to derive.
+  - The **HUD↗ link is the literal relative path `href="/dashboard"`** and its adjacent Home
+    **Terminal Graph↗ link is the literal relative path `href="/terminal-graph"`** (no host, no port,
+    no scheme); the **TODO↗ link on the HUD is `href="/"`**. Because they are same-origin relative
+    paths, ANY port-forward / reverse-proxy "just works" — there is nothing to derive.
+  - **Shared/path-scoped PUBLIC ingress:** when an existing Funnel or reverse proxy terminates on
+    another service at `/`, preserve that unrelated root and route MyPeople `/terminal-graph` plus
+    its `/todo` prefix through an authentication gateway—not directly to the TODO server. This is a
+    security boundary: serving a TODO page mints `mp_session`, so a direct public proxy silently logs
+    every anonymous visitor into the real board. Anonymous `/terminal-graph` MUST return 401 with an
+    authentication challenge and MUST NOT emit `Set-Cookie`; an anonymous or cookie-only `/todo/*`
+    request also returns 401. Only after the gateway authenticates the user may it proxy the Graph
+    shell, metadata, board data, and normal shared-card operations to loopback TODO paths while
+    forwarding the browser session cookie. A 200 HTML shell whose authenticated
+    `/todo/terminal-graph` or `/todo/board` request 404s is still a failure. Never bake a public or
+    Tailscale hostname into generated UI/config.
   - `fetch()` stays same-origin RELATIVE (already correct). **The inner HUD keeps binding its own
     `:9900` for the supervisor/Verify**, but it is reached by the USER only through the todo-server
     pass-through — the browser never needs `:9900` directly.
   - 🔴 **SYMMETRIC FRONT DOORS — the HUD port must NOT strand a user (CEO 2026-06-26: opening the HUD
     on its own port `:9900`/`HUD_PORT` gave a dead TODO↗ link, because `:9900/` 404s and the relative
     `href="/"` resolved to the HUD port's empty root).** Because the cross-nav links are relative
-    (`/` and `/dashboard`), EVERY port that serves a page MUST serve BOTH routes. The todo-server
+    (`/`, `/dashboard`, and `/terminal-graph`), EVERY port that serves a page MUST serve ALL routes. The todo-server
     already proxies the HUD routes; **symmetrically, the queue-server (HUD process) MUST reverse-proxy
-    the TODO routes — `GET /`, `/todos`, `/wall`, `/todo/*` — to `127.0.0.1:<TODO_PORT>`** (read
+    the TODO routes — `GET /`, `/todos`, `/wall`, `/terminal-graph`, `/todo/*` — to `127.0.0.1:<TODO_PORT>`** (read
     `TODO_PORT` from config; stream the response back unchanged, same discipline as the todo-server's
     HUD pass-through). Result: whichever port the user lands on (HUD_PORT or TODO_PORT), `/` serves the
-    TODO board and `/dashboard` serves the HUD, so the relative cross-nav works from EITHER origin and
+    TODO board, `/dashboard` serves the HUD, and `/terminal-graph` serves the existing Graph, so the relative cross-nav works from EITHER origin and
     no port leaves a 404/dead link. (Still no absolute inner-port URLs in any served byte — these are
     server-side proxies, not browser redirects.)
   **Forbidden in ANY served byte (HARD):** `http://127.0.0.1:<port>`, `http://localhost:<port>`,
   `location.hostname+':9900'`/`+':9933'`, or any absolute `:9900`/`:9933` literal inside a cross-nav /
-  attach / redirect target. The ONLY acceptable cross-nav hrefs are the relative paths `/dashboard`
-  and `/`. (Attach URLs still derive from the agent's advertised `attach_base` per §4/§5.2.)
+  attach / redirect target. The ONLY acceptable cross-nav hrefs are the relative paths `/dashboard`,
+  `/terminal-graph`, and `/`. (Attach URLs still derive from the agent's advertised `attach_base`
+  per §4/§5.2.)
 🔴 **J6 (tightened, CEO 2026-06-23) — assert it for real, through a PORT-SHIFTED origin:** stand up a
 proxy whose EXTERNAL port ≠ 9933 (e.g. `:38080→:9933`), fetch `/` through it, and assert: (a) the
-HUD↗ href is EXACTLY `/dashboard` (relative — no `http`, no host, no `:9900`); (b) `GET /dashboard`
-through that SAME shifted origin returns **200 and the HUD markers** ("MyPeople - HUD", the agents
-table) — proving the pass-through works end-to-end behind a port shift; (c) **grep the full served
+HUD↗ href is EXACTLY `/dashboard` and the adjacent Terminal Graph↗ href is EXACTLY
+`/terminal-graph` (relative — no `http`, no host, no inner port); (b) `GET /dashboard` and GET
+`/terminal-graph` through that SAME shifted origin each return **200** with their existing HUD and
+Terminal Graph markers — proving both routes work end-to-end behind a port shift; when a configured
+PUBLIC shared/Funnel ingress exists, first assert anonymous `/terminal-graph` is 401 with no
+`Set-Cookie` and anonymous `/todo/board` + `/todo/terminal-graph` are 401, then authenticate and
+assert those same three paths return 200 with live data. Prove the resulting `mp_session` alone,
+without gateway credentials, is still rejected and the unrelated `/` handler remains healthy and
+unchanged; (c) **grep the full served
 bytes of `/` and `/dashboard` for any `127.0.0.1`/`localhost`/`:9900`/`:9933` literal in an href/src/
 redirect → ZERO**. Any hardcoded inner-port nav literal, or a `/dashboard` that 404s through the
 shifted origin, = FAIL.
 🔴 **J6b (SYMMETRIC FRONT DOORS, CEO 2026-06-26) — the cross-nav must work from EITHER port.** On
 **BOTH** the HUD port (`HUD_PORT`) AND the TODO port (`TODO_PORT`), assert: (a) `GET /` returns **200
 and the TODO board** ("Priorities"); (b) `GET /dashboard` returns **200 and the HUD** ("MyPeople -
-HUD"); (c) the served HUD page's TODO↗ href is `/` and the TODO page's HUD↗ href is `/dashboard`
-(relative). So a user who opens the HUD on its own port and clicks TODO↗ reaches the board, not a
-404. FAIL if `HUD_PORT/` 404s (or doesn't serve the board) — that is the dead-link defect this gate
-exists to prevent.
+HUD"); (c) `GET /terminal-graph` returns **200** and the existing Terminal Graph; (d) the served HUD
+page's TODO↗ href is `/`, while the TODO page's same inline navigation group contains HUD↗
+`href="/dashboard"` and Terminal Graph↗ `href="/terminal-graph"`, all relative. Assert both Home
+links are keyboard reachable, visibly focused, and unclipped at a narrow mobile viewport. So a user
+who opens either front door can reach the existing Graph and a user who clicks TODO↗ reaches the
+board, not a 404. FAIL if `HUD_PORT/` 404s (or doesn't serve the board) — that is the dead-link
+defect this gate exists to prevent.
 
 **ITEM 3 — click a commenter's agent name → opens its terminal.** In a card's comment thread,
 when a comment's author (`by`) is an **attachable agent_id** (`…/<sess>:<tab>` form), render the
@@ -1869,7 +1898,9 @@ exit 0.**
    **auto-respawns** and reappears `alive` in `/agents` within the supervisor cycle (no human).
 5. **TODO add-task round-trips.** A task created via the API is read back on `/todo/board` and
    shown on the page; the app serves 200 on `:9933`.
-6. **Cross-nav.** `:9933/` HTML links to `:9900/dashboard`; `:9900/dashboard` links to `:9933`.
+6. **Cross-nav.** On both symmetric front doors, Home links relatively to `/dashboard` and the
+   existing `/terminal-graph`; HUD links relatively to `/`. All three routes return 200 and real
+   keyboard navigation from Home reaches the existing Terminal Graph without regressing HUD.
 7. **Click-to-terminal.** The TODO comment thread wires an attachable commenter's name to the
    attach action, and `GET /todo/attach?agent=<host>/main:Boss` returns `ok` + a
    `mc-<sess>:<tab>` target. (Strongest: opening the attach URL renders the live pane.)
@@ -2395,10 +2426,17 @@ exit 0.**
       board state persists on reload; click again → un-done. (No dropdown needed; the ★ star is pin-only.)
     - **d. Card modal + comment:** click the card → modal opens; post a comment → it appears in the
       thread live (no manual refresh); Esc/backdrop closes it.
-    - **e. Cross-nav by REAL CLICK:** on the board, **click `HUD ↗`** → the browser lands on the HUD
-      (`MyPeople - HUD`, agents table visible); on the HUD, **click `TODO ↗`** → lands on the board
-      (`Priorities`). Assert the resulting page content after the click — do this **from BOTH ports**
-      (open the HUD on its own port too and click TODO↗ → must reach the board, not a 404).
+    - **e. Cross-nav by REAL CLICK:** on the board, first keyboard-focus and activate **`Terminal
+      Graph ↗`** → the browser lands on the existing `/terminal-graph` (`MyPeople · Terminal Graph`,
+      fleet canvas visible, HTTP 200); use browser Back to return Home, then **click `HUD ↗`** → the
+      browser lands on the HUD (`MyPeople - HUD`, agents table visible); on the HUD, **click `TODO ↗`**
+      → lands on the board (`Priorities`). Assert the resulting page content after every navigation,
+      including at a narrow mobile viewport, and do this **from BOTH ports** (open the HUD on its own
+      port too and click TODO↗ → must reach the board, not a 404). The Terminal Graph hop must also
+      pass through the node's Tailscale origin without any hardcoded hostname. If a shared public
+      Funnel is configured, first prove its exact outward `/terminal-graph` URL challenges an
+      anonymous browser without minting `mp_session`; then authenticate in both engines and wait for
+      live terminal + shared-task counts, proving the guarded `/todo` dependencies work too.
     - **f. SPAWN CMD visible:** spawn a real engineer; the HUD agents table shows that engineer's row
       with its **spawn command** (the SPAWN CMD cell, non-empty) AND its `mp revive <agent_id>`.
     - **g. Proof renders:** a card with an image/video proof (posted via API) shows the real
@@ -2641,7 +2679,7 @@ that passes every gate is correct, per Decision B.)
 | F12 | ITEM 3 — clickable commenter agent name → terminal | same resolver; non-agent (`CEO`) authors are plain text | J7 |
 | ~~F13~~ | ~~dependencies/subtasks/hard-gate~~ **REMOVED (CEO 2026-06-17)** | backend must NOT implement `add{parent}`/`dependsOn`/`hardGate`; generated UI has no such controls | J23 (negative) |
 | F14 | board→Boss ping on **add AND every comment** | `mp send <BOSS_AGENT>` on non-test add + on each `/todo/comment` (exempt only the Boss's own); logged to `boss-inbox.log` (§6) | J3 + J32 |
-| F15 | ITEM 2 — cross-nav HUD ↗ | static link to `:9900/dashboard` (built from `location.hostname`) | J6 |
+| F15 | ITEM 2 — Home navigation HUD ↗ + Terminal Graph ↗ | adjacent ordinary anchors in the same inline group with exact relative hrefs `/dashboard` + `/terminal-graph`; same-tab, keyboard/focus accessible, responsive; Graph reuses §7.6 | J6 + J6b + J49e |
 | F16 | verified badge | board returns `verified`; UI shows the "verified" badge | J24 |
 | F23 | LIVE hot-reload (no manual refresh) | page polls ≤~3s (or SSE); new tasks/comments/state appear without F5 (§7.2) | J33 |
 | F24 | full E2E comms loop (joke protocol) | task→Boss→spawn engineer→engineer comments one-per-turn→CEO comment pings Boss→next round (§8) | J32 |
