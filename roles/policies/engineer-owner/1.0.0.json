@@ -1,0 +1,7 @@
+{
+  "name": "engineer-owner",
+  "version": "1.0.0",
+  "role": "engineer",
+  "allow": ["read-board", "comment-own-card", "post-proof", "inspect-delegated-agent", "manage-explicit-child"],
+  "deny": ["impersonate-ceo", "replace-card-owner", "retire-boss", "publish-secret", "claim-unobserved-proof"]
+}

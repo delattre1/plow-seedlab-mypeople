@@ -27,10 +27,17 @@ The complete list of things mypeople does. **No spec here.** Spec (Action / Veri
 ## Backends
 
 11. **backend-claude** — agents run the Claude Code TUI
+12. **backend-codex** — agents run the Codex TUI through the same lifecycle/roster path
+
+## Reusable team
+
+13. **role bundles** — `mp spawn --role boss|engineer` selects one versioned personality + mandatory
+    `mypeople-system` skill + role skills + lifecycle/tool/policy contract; Claude and Codex adapters
+    materialize native files from identical locked sources
 
 ## Distribution
 
-12. **cross-host (Tailscale)** — agents on different machines reachable by the same address scheme; fresh nodes self-register on first boot
+14. **cross-host (Tailscale)** — agents on different machines reachable by the same address scheme; fresh nodes self-register on first boot
 
 ## Architectural constraint
 
@@ -45,6 +52,6 @@ The complete list of things mypeople does. **No spec here.** Spec (Action / Veri
 
 ## What's NOT in v1
 
-cut from tmux-boss: approve/deny gating · handoff verb · watchdog · lazy-detect · disaster-recovery · resume · backend-codex/pi/terminal · wiki / persistent memory · file attachments · voice notifications · gh-pr-watcher · linq-poller · self-improve.
+cut from tmux-boss: approve/deny gating · handoff verb · watchdog · lazy-detect · disaster-recovery · backend-pi/terminal · wiki / persistent memory · file attachments · voice notifications · gh-pr-watcher · linq-poller · self-improve.
 
 Each can come back later as a separate, scoped addition. None blocks v1.

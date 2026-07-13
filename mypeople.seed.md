@@ -182,6 +182,8 @@ requires header `X-Queue-Secret: <QUEUE_SECRET>`; JSON bodies):
 - `GET /agents` → array of agent records (the HUD's source of truth for who's alive). **Each row MUST
   carry `spawn_cmd`** (joined from the roster store by `agent_id`, §3) **and `revive_cmd`**
   (`"mp revive <agent_id>"`) so the HUD can show how each engineer was spawned + how to revive it.
+  Role agents additionally expose `role`, exact `role_ref`, `role_digest`, `personality_digest`,
+  `skill_digests`, `adapter_version`, and `role_bundle`; role-less rows return empty values.
 - `POST /agents/register` `{agent_id, backend, state, boss_id, is_master}`; `POST
   /agents/unregister` `{agent_id}`.
 - `POST /heartbeat` `{hostname, attach_base, substrate_ready, purpose, node_type,
@@ -212,18 +214,85 @@ requires header `X-Queue-Secret: <QUEUE_SECRET>`; JSON bodies):
     `DEFAULT_ENG_MODEL` constant shared with `mp` so the two sides never drift, and pin it in BOTH the
     launch command and the `spawn_cmd` audit string the roster records (so `/agents` shows the exact
     per-engineer model regardless of which host launched it).
-- `GET /roster` → JSON array (retired/known engineers, for the HUD revive table).
+  - 🔴 **ROLE PAYLOAD FIDELITY:** a queue-routed spawn carries `role`, `owner_task_id`, and
+    `temporary` alongside the existing backend/cwd/boss/master/model keys. The receiving
+    `queue-client.py` reconstructs `--role`, `--owner-task`, or `--temporary` on the one existing
+    `mp spawn` command. It never resolves a role in a second launcher or silently drops lifecycle
+    classification at the remote boundary.
+- `GET /roster` → JSON array (retired/known engineers, for the HUD revive table), including the same
+  role lock/adapter fields for exact-version revive and audit.
 - `GET /dashboard` → the HUD HTML (**public**). **The page carries NO secret (§5.12).** Serving it
   mints a browser session (httpOnly cookie); its same-origin JS calls the gated endpoints with the
   cookie auto-sent — the QUEUE_SECRET never reaches the browser.
 
 **`mp` CLI** (in `$INSTALL_DIR/bin/mp`, on `PATH`): verbs `status, spawn, send, peek, kill,
 answer, revive`.
-- `mp spawn <agent_id> [--backend claude] [--cwd PATH] [--boss <agent_id>] [--master] [--model <id>]
+- `mp spawn <agent_id> [--backend claude|codex] [--cwd PATH] [--boss <agent_id>] [--master]
+  [--model <id>] [--role boss|engineer]
   [--owner-task <todo_id>|--temporary]` — creates
   the tmux window `mc-<sess>:<tab>`, launches the backend, registers the agent. `--master` also
   sends the Boss its onboarding prompt (read `boss-CLAUDE.md`). **Idempotent:** spawning an
   agent_id whose window already exists reuses it, never double-launches.
+  - 🔴 **VERSIONED ROLE BUNDLES (`--role`; CEO 2026-07-13, card `070e43e842`).** This is a layer
+    inside the existing backend-aware `mp spawn`, never a parallel spawn system. Generate a
+    first-party `$INSTALL_DIR/roles/` store containing `registry.json`, exact versioned manifests,
+    personalities, Agent Skills, hooksets, toolsets, and policies. Initially the only tags are:
+    - `engineer → engineer@1.0.0`: backend-neutral Engineer personality + mandatory
+      `mypeople-system@2.0.0` + `engineer-card-owner@1.0.0` + the lifecycle hookset + operator
+      toolset + Engineer-owner policy.
+    - `boss → boss@6.1.0`: personalityRef is the already generated `boss-CLAUDE.md` (`BOSS_DOC`) —
+      DO NOT paraphrase, fork, or redefine Boss doctrine — plus the SAME mandatory
+      `mypeople-system@2.0.0`, `boss-manager@1.0.0`, lifecycle hookset, operator toolset, and Boss
+      manager policy. `--role boss` requires `--master`; `--role engineer` rejects `--master`.
+    `mypeople-system/SKILL.md` is one Agent Skills-compatible authored source with YAML frontmatter.
+    It teaches: full `$AGENT_ID` authorship; board query; `/todo/comment` and `/todo/proof` reporting
+    on the assigned card; `mp status/send/peek/spawn/answer/kill/revive`; queue-secret hygiene; and
+    the one-owner-per-open-card/close/reopen lifecycle. It is `required:true, load:startup` in EVERY
+    role. `boss-manager` adds delegation/routing/owner administration; `engineer-card-owner` adds
+    handshake/plan/execution/evidence/blocker/final reporting. Personality says who the agent is;
+    skills teach workflows; tool/policy JSON states authority. Do not duplicate a skill body in a
+    manifest or fork it per backend.
+  - 🔴 **FAIL-CLOSED ROLE PREFLIGHT BEFORE TMUX/ROSTER:** normalize the tag, resolve either the
+    registry target (new spawn) or exact recorded `name@semver` (revive), constrain every reference
+    to the role store except the explicit Boss-doctrine URI, parse/validate every JSON and SKILL.md,
+    require a compatible backend adapter + `mypeople-system`, read every required byte, and SHA-256
+    the profile/personality/skills/hook/tool/policy lock. Unknown/escaping/missing/empty/corrupt/
+    incompatible content returns non-zero **before creating a tmux pane or roster row**. Required
+    content never degrades to generic prompts or whichever personal skill happens to be installed.
+    Duplicate/colliding skill names are errors, and the installed canonical role store is read-only
+    to runtime agents; improvements publish a new version instead of mutating a live role.
+  - 🔴 **ONE LOCK, TWO NATIVE ADAPTERS:** materialize a derived per-agent view beneath
+    `$INSTALL_DIR/run/role-bundles/<safe-agent-id>/<digest-prefix>/`, with `attestation.json`,
+    `common/personality.md`, `common/startup.md`, and `common/skills/<name>/SKILL.md`. The startup file
+    is generated from the same locked personality + every required startup SKILL byte and includes
+    their digests; generated regular files are read-only. Reuse a view only after re-hashing its
+    personality and native/common skills; missing or changed derived files are rebuilt from the
+    canonical store.
+    - **Claude adapter v1:** pass the common startup file with `--append-system-prompt-file` so
+      Claude defaults remain intact; expose the same skills under a valid generated per-role plugin
+      (`.claude-plugin/plugin.json` + `skills/*/SKILL.md`) via `--plugin-dir`; pass a generated
+      `--settings` overlay containing only MyPeople lifecycle events missing from user-global
+      settings. If the exact existing `emit-event.sh <event>` is already globally configured, record
+      `user-global-exact` and do not add a duplicate. Lifecycle events fire exactly once.
+    - **Codex adapter v1:** create a generated isolated `CODEX_HOME` beneath the bundle, reference
+      the user's existing auth/config/session directories (never copy credential bytes into
+      attestation/startup), expose only locked role skills under native `skills/`, generate one
+      `hooks.json` with the existing lifecycle handler, and generate a selected
+      `<profile>.config.toml` whose additive `developer_instructions` are the common startup bytes.
+      Launch with `CODEX_HOME=... codex --profile <generated-name>` plus all existing model/trust/
+      approval/resume flags. Do not use replacement `model_instructions_file`.
+    Both adapters MUST resolve identical role/personality/skill digests. Export non-secret
+    `MYPEOPLE_ROLE`, `MYPEOPLE_ROLE_REF`, `MYPEOPLE_ROLE_DIGEST`, and `MYPEOPLE_ROLE_BUNDLE` into the
+    agent process. Never place `QUEUE_SECRET` or auth bytes in a role file, attestation, `spawn_cmd`,
+    or card proof.
+  - 🔴 **DURABLE ROLE/REVIVE CONTRACT:** `spawn_cmd`, local/remote registration, heartbeat agent
+    metadata, and `run/roster.json` carry `role`, exact `role_ref`, `role_digest`,
+    `personality_digest`, `skill_digests`, `adapter_version`, and `role_bundle`. Revive selects the
+    recorded exact version and requires the recorded digest; tag movement or same-version source
+    drift fails loudly instead of resuming with a different identity. A role-less legacy spawn takes
+    the pre-existing launch path with no role flags/files/env and retains every old behavior.
+    Explicit `--role boss --master` still performs today's delayed `BOSS_DOC` onboarding prompt and
+    locked doctrine summary; plain historical `--master` remains supported unchanged.
   - 🔴 **ENGINEER LIFECYCLE CLASSIFICATION (CEO 2026-07-10):** `--owner-task <todo_id>` and
     `--temporary` are mutually exclusive and require `--boss`. The former records
     `lifecycle:"owner", owner_task_id:<todo_id>` in the durable roster; the latter records
@@ -1697,6 +1766,11 @@ Author each from §3–§8. They interoperate because you write them together to
   `main:Boss`. (May reuse the queue-client code pointed at `UPSTREAM_QUEUE_URL`, but fully
   isolated from the inner: separate dir, config, pidfile — the inner's lifecycle never touches it.)
 - `bin/mp` — the CLI (§4 verbs), incl. idempotent spawn + the §4 tmux mapping.
+- `roles/` — canonical versioned `boss` + `engineer` role manifests, the Engineer personality,
+  mandatory `mypeople-system` and role-specific Agent Skills, lifecycle hookset, shared operator
+  toolset, and scoped policies (§4 role contract). `boss` references generated `boss-CLAUDE.md`.
+- `run/role-bundles/` — GENERATED per-agent Claude/Codex adapter views and attestations; derived,
+  disposable, secret-free, and reproducible from `roles/` + `boss-CLAUDE.md`.
 - `bin/todo-server.py` + `bin/todos.html` + `bin/terminal-graph.html` — GENERATED: the TODO board API
   + board→Boss ping (§6) and live spatial graph, built from the PLOW tokens (§7) + the §A.2 feature
   contracts. The pages + server agree on the §6 API; the Graph never replaces or simplifies TODO.
@@ -2582,7 +2656,28 @@ exit 0.**
     `target="_blank"` and `rel` containing both `noopener` and `noreferrer`, zero raw unsafe elements
     or dangerous-scheme links are created (including malicious cell content), no injected handler
     executes, and the stored source body is unchanged.
-> Gates J14–J52 are NON-OPTIONAL: the Verify harness MUST assert every one. A
+53. 🔴 **REUSABLE ROLE BUNDLES (CEO 2026-07-13, card `070e43e842`).** In an isolated install/run
+    fixture, assert: (a) `boss` and `engineer` manifests resolve exact semvers and both include the
+    same required startup `mypeople-system` skill; (b) Claude and Codex resolution produces identical
+    role/personality/skill digests; (c) generated Claude files include additive startup instructions,
+    a valid plugin manifest, native skill directories, settings overlay, and exactly-once lifecycle
+    source; (d) generated Codex files include isolated home/profile, additive
+    `developer_instructions`, native skills, shared session reference, and exactly one hooks view;
+    use Codex `debug prompt-input` (when available) to prove role + both startup skills are
+    model-visible, not merely on disk; (e) remove/corrupt a required canonical or materialized skill
+    and prove fail-before-pane/roster or deterministic rebuild respectively; (f) an unknown role and
+    invalid Boss/Engineer `--master` combination fail before side effects; (g) a role-less launch
+    contains no role env/adapter flags and all pre-existing spawn tests remain green; (h) remote
+    dispatch preserves role + owner/temporary classification; (i) roster/revive preserve exact lock
+    and reject digest drift; (j) spawn disposable real Engineer agents on Claude and Codex, list
+    materialized files and roster locks, and have each state the correct card reporting/system
+    workflow from startup context; (k) spawn a disposable non-production-ID `--role boss --master`
+    and observe the existing Boss doctrine onboarding; snapshot the real Boss tmux target/client
+    before/after and prove it was neither sent to, renamed, switched, nor restarted. Clean every
+    disposable agent/window/recorder/roster/status artifact in `finally`. A known transient exit-4
+    window-name race may be captured and retried, but can never be hidden or treated as adapter
+    success without the final named-window assertion.
+> Gates J14–J53 are NON-OPTIONAL: the Verify harness MUST assert every one. A
 > green run with any F-feature unexercised — OR that leaves ANY test fixture / placeholder host on
 > the live grid, runs default tmux, shows ANY animation, leaks the secret to the browser, fails the
 > joke-protocol E2E loop, needs a manual refresh, steals focus/caret on poll, **or hangs on a

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "roles": {
+    "boss": "profiles/boss/6.1.0.json",
+    "engineer": "profiles/engineer/1.0.0.json"
+  }
+}

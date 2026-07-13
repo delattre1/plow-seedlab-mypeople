@@ -23,11 +23,23 @@ generated runtime:
 | `plans/boss-culture-v6.md` | Full recurring CEO→Boss culture message published on TODO card `444a1d51129c2eb2`. |
 | `plans/cto-claude.md` | CTO proxy-agent doctrine (source of truth for seed §8.5). |
 | `plans/features.md`, `plans/capabilities.md` | User-facing feature list + capability spec. |
+| `roles/` | Canonical versioned `boss` and `engineer` role manifests, personalities, Agent Skills, hook/tool references, and policies. |
 
 **No generated runtime code or live data lives here** — the seed *generates* `queue-server.py`,
 `todo-server.py`, `todos.html`, the HUD, the Boss, and the CTO from the spec. A running deployment's
 code + board data is an operational concern, kept out of the seed repo (that's what makes the seed
 "100% instructions / 0% code").
+
+## Reusable team roles
+
+`mp spawn <agent-id> --role engineer --backend claude|codex` selects one locked Engineer definition;
+`mp spawn <agent-id> --role boss --master --backend claude|codex` selects the Boss definition while
+preserving the existing Boss onboarding. Both roles compose a backend-neutral personality, the same
+mandatory `mypeople-system` skill, role-specific skills, the lifecycle hookset, tools, and policy.
+The Claude and Codex adapters materialize native files from those same sources and record exact
+versions/digests in the durable roster. A missing/corrupt required role component fails before spawn.
+
+Role-less spawn commands remain supported unchanged.
 
 ## Using the seed
 

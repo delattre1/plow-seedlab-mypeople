@@ -1,6 +1,6 @@
 # mypeople — capabilities (testable spec)
 
-12 user-facing capabilities. Each one defines:
+13 user-facing capabilities. Each one defines:
 - **Action** — what the user does (the command)
 - **Pane truth** — what's observable after, in the actual pane / filesystem / HTTP
 - **Test** — a deterministic script you can run to prove it works
@@ -126,6 +126,17 @@ empty composer, stale draft, or fallback payload.
 
 ---
 
+## 13. reusable role bundles (Claude + Codex)
+
+| | |
+|---|---|
+| **Action** | `mp spawn main:role-claude --role engineer --backend claude --temporary --boss "$AGENT_ID"` and the same command with `role-codex` / `--backend codex`; Boss uses `--role boss --master`. |
+| **Pane truth** | Each agent starts with its versioned personality, mandatory `mypeople-system`, and role skill already in startup context. The roster records exact role/personality/skill digests. Claude has an additive prompt + valid plugin skill view; Codex has an additive profile + native skill view. Both cite identical source digests. |
+| **Failure truth** | Unknown, missing, escaping, empty, corrupt, incompatible, or drifted required role content exits non-zero before a tmux pane or roster row. Role-less legacy spawns contain no role adapter flags and behave as before. |
+| **Test** | `python3 tests/test_role_profiles.py --runtime "$INSTALL_DIR/bin/mp" --roles "$INSTALL_DIR/roles" --boss-doc "$INSTALL_DIR/boss-CLAUDE.md" --queue-client "$INSTALL_DIR/bin/queue-client.py" --codex-prompt`<br>Then spawn disposable real Claude/Codex Engineer agents; assert their `attestation.json`, native `SKILL.md` files, process flags, roster locks, and model-visible card workflow; spawn an isolated disposable Boss and assert existing doctrine onboarding without changing `main:Boss`. |
+
+---
+
 ## What this gives us
 
 - A row per capability ⇒ a SEED `## Verify` block writes itself.
@@ -140,7 +151,7 @@ empty composer, stale draft, or fallback payload.
 - lazy-detect
 - disaster-recovery
 - resume
-- backend-codex, backend-pi, backend-terminal
+- backend-pi, backend-terminal
 - wiki / persistent memory
 - file attachments
 - voice notifications
