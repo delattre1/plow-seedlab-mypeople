@@ -353,11 +353,11 @@ side, but the SUBMIT side (this hook) must emit `type` or the notification vanis
 A golden baked from a seed that emitted `action`-only shipped exactly this drift; every substrate
 agent finished invisibly (§15 gate 3b guards it end-to-end).
 **Status state machine — MUST emit `working`, not only `idle` (folded 2026-06-25, CEO bug).** The
-status file's `status` field is what the HUD/Terminal-Wall badge reads, so it MUST transition through
+status file's `status` field is what the HUD/Terminal Graph badge reads, so it MUST transition through
 the full lifecycle: `SessionStart→"starting"`, **`UserPromptSubmit→"working"`** (a submitted prompt =
 the agent STARTED a turn), `PreToolUse(AskUserQuestion)→"blocked"`, `Stop→"idle"`. **Omitting the
 `UserPromptSubmit→working` hook is a real bug we hit:** without it the file only ever goes
-`starting→idle`, so EVERY agent shows IDLE on the wall even while it churns mid-turn. The
+`starting→idle`, so EVERY agent shows IDLE even while it churns mid-turn. The
 `UserPromptSubmit` branch writes the status file (set `status:"working"`, refresh timestamp/session_id,
 preserve summary) and **exits SILENTLY — it must print NOTHING to stdout**, because UserPromptSubmit
 hook stdout is injected into the agent's context. Only the Stop hook notifies the Boss; the
@@ -585,8 +585,8 @@ session: _v_<tab>_…` + ttyd's "Press Enter to Reconnect" (which never recovers
 one command; set destroy-unattached only after it's attached. The clickable row's `attach_url`
 (§4/§5.2) still carries `-t mc-<sess>:<tab>`; the helper does the grouping.
 
-**5.7b read-only observer ttyd for live terminal canvases (`7682`; reuse the proven Terminal Wall
-architecture, card `d3effa2e2e66`).** Run a second persistent ttyd WITHOUT `-W`, with `-a -p 7682`,
+**5.7b read-only observer ttyd for the live Terminal Graph canvas (`7682`).** Run a second persistent
+ttyd WITHOUT `-W`, with `-a -p 7682`,
 whose helper accepts the same `-t mc-<sess>:<tab>` arguments. Per connection it MUST create a unique
 throwaway session grouped to the canonical `mc-<sess>` leader, select `<tab>` in that group, and run
 `tmux attach -r -t <unique-group>`. `-r` is mandatory: tmux marks this client `read-only,ignore-size`,
@@ -920,11 +920,11 @@ endpoint + its `purpose`/`state`/`node_type` heartbeat fields still EXIST for th
 / §5.11 central visibility — that is OUR central HUD, a separate concern — but the GENERATED product
 HUD does not display them.)
 
-**§7.5 — Per-agent STATUS BADGE on the HUD + Terminal Wall (CEO 2026-06-25). The §4 hooks WRITE the
-status; §7.5 makes the HUD READ + SHOW it.** The §4 lifecycle hooks write each agent's `status`
-(`starting|working|idle|blocked`) to its status file (§3). The HUD MUST read those files and DISPLAY the
-state — otherwise every agent looks IDLE even mid-turn (the real bug: the hook wrote `working` but
-nothing rendered it). TWO surfaces, ONE canonical derivation:
+**§7.5 — Per-agent STATUS BADGE on the HUD + Terminal Graph (CEO 2026-06-25). The §4 hooks WRITE the
+status; the product surfaces READ + SHOW it.** The §4 lifecycle hooks write each agent's `status`
+(`starting|working|idle|blocked`) to its status file (§3). The HUD and Terminal Graph MUST read those
+files and DISPLAY the state — otherwise every agent looks IDLE even mid-turn (the real bug: the hook
+wrote `working` but nothing rendered it). TWO surfaces, ONE canonical derivation:
 - **Status → display state (canonical map):** `idle→idle` · `blocked→blocked` ·
   `working|starting→working` · **unreadable/missing status file (remote host) → `ready`**.
 - **`/agents` MUST carry a `status` field** (merged from the status file, §3) — not only the alive/dead
@@ -933,44 +933,25 @@ nothing rendered it). TWO surfaces, ONE canonical derivation:
   alive/dead `state` + ATTACH columns — `working` in **warning amber `#FEBC2E`** (subtle live pulse dot),
   `idle` **muted/dimmed** (`rgba(240,240,232,0.45)`), `blocked` in **danger `#FF3B30`**, `ready` in
   **Volt `#D5EF8A`**. Polls so the badge flips live (≤~3s) as agents work/stop.
-- **Terminal Wall — `GET /wall` (page) + `GET /todo/wall` (tile JSON, `X-Queue-Secret`), served by the
-  todo-server `:9933`:** this is the validated Terminal Wall from card `d3effa2e2e66`, never an
-  agent/status list. It contains one **REAL, continuously streaming terminal window** per live agent.
-  Every small viewer is a persistent `:7682` ttyd iframe for the tile's exact tmux target, using the
-  §5.7b grouped `tmux attach -r` helper so tmux marks it `read-only,ignore-size`; a Wall observer must
-  never resize an operator pane. Clicking the terminal opens that exact target full-screen through the
-  writable `:7681` attach. Do not substitute screenshots, `capture-pane`, text/ANSI snapshots, fake
-  terminals, terminal-content polling, or another transport.
-- `/todo/wall` joins live `/agents` with `/roster`, excludes dead/retired entries, and returns exact
-  `target`, mapped `state`, `host`, and actual tmux `cols×rows`, plus the read-only and interactive
-  ports. Batch geometry discovery (one tmux listing, not one subprocess per tile). The tile
-  `data-state` uses the SAME badge colors; **working-first sort**; filter chips
-  (`all`/`working`/`idle`); idle tiles dim + desaturate with an `idle` watermark; working tiles carry
-  the amber pulse.
-- Render every whole pane at its real geometry and CSS-scale it down with one shared Wall scale.
-  Derive each tile/screen dimensions from `cols×rows` at that shared scale, so the iframe fills its
-  screen with only 4px per-side padding; never crop, stretch, use per-pane fit/zoom, or mutate tmux
-  window geometry. Different real pane geometries may produce different card aspect ratios.
-- Metadata refresh is keyed reconciliation by `agent_id`: update labels/state/order/filter treatment in
-  place, add an iframe only for a newly-live agent, and remove it only when that agent leaves. NEVER
-  clear/rebuild the grid or rewrite an unchanged iframe `src`; filters hide existing tiles without
-  detaching them. Existing iframe DOM identity/WebSocket therefore persists across every refresh, and
-  a metadata failure leaves already-connected terminals running. (Generative — build the page from the
-  §7 PLOW tokens + this contract; do NOT paste bytes — Rule 42.)
+
+**§7.5a — Terminal Wall REMOVED (CEO 2026-07-13).** Nobody uses this surface. Do not generate or
+install `wall.html`, a `/wall` page route, a `/todo/wall` metadata endpoint, proxy clauses, gateway
+handlers, or navigation links for it. Both removed paths return 404 without minting `mp_session` on
+every front door. This removal MUST NOT alter Priorities `/`, HUD `/dashboard`, Terminal Graph
+`/terminal-graph`, their authenticated APIs, or the shared ttyd observer/writable transports.
 
 **§7.6 — Live spatial Terminal Graph (`GET /terminal-graph` + gated
-`GET /todo/terminal-graph`; CEO 2026-07-11).** This is an ADDITIVE prototype route: `/wall`, HUD, and
-TODO remain present and behaviorally unchanged. It reuses §5.7b rather than inventing another
-terminal renderer.
+`GET /todo/terminal-graph`; CEO 2026-07-11).** This is the canonical live terminal canvas alongside
+HUD and TODO. It reuses §5.7b rather than inventing another terminal renderer.
 
 - **Installed-build/startup durability:** the distributable `mypeople` package's bundled runtime
   MUST contain `terminal-graph.html`, `todos.html`, the complete shared task/owner APIs in
-  `todo-server.py`, owner lifecycle fields in `mp`/`queue-server.py`, the `/terminal-graph` +
-  `/todo/terminal-graph` routes, and the §7.5 live `wall.html`—not merely the canonical seed prose. `mypeople up` materializes that
+  `todo-server.py`, owner lifecycle fields in `mp`/`queue-server.py`, and the `/terminal-graph` +
+  `/todo/terminal-graph` routes—not merely the canonical seed prose. `mypeople up` materializes that
   bundled runtime into `INSTALL_DIR`; therefore packaging or starting an older bundle must never
-  overwrite a newer installed Graph/Wall with status-only or route-missing assets. Verification must
-  run `mypeople up --detach`, restart `todo-server.py` through the supervisor, and reassert both pages,
-  both metadata APIs, real `:7682` panes, and exact `:7681` fullscreen attach after the restart.
+  overwrite a newer installed Graph with status-only or route-missing assets. Verification must run
+  `mypeople up --detach`, restart `todo-server.py` through the supervisor, and reassert the Priorities
+  and Graph pages, their metadata APIs, real `:7682` panes, and exact `:7681` fullscreen attach.
 
 - The page is an infinite dark Plow canvas (subtle dot grid, Volt/Grove visual language) with pan,
   pointer-centered wheel zoom, "fit fleet", and "Boss" recenter controls. The ONLY canvas element
@@ -1055,15 +1036,14 @@ terminal renderer.
   the exact same target and the isolated grouped-session helper from §5.7. It is genuinely
   interactive; close/Escape unloads only this writable iframe. The small observer remains read-only
   and connected underneath.
-- Page and JSON are served symmetrically from the TODO front door, browser-session authenticated in
-  the same way as `/wall`. On direct **HTTP** front doors, terminal URLs derive the browser-reachable
+- Page and JSON are served symmetrically from the TODO front door and use the existing authenticated
+  browser session. On direct **HTTP** front doors, terminal URLs derive the browser-reachable
   hostname plus `:7682`/`:7681`, never a baked server loopback. On any **HTTPS** front door, raw
   `https://host:7682` is forbidden (ttyd is plain HTTP and the TLS/WebSocket connection fails): use
   same-origin `/ttyd-ro/` and `/ttyd-rw/` URLs instead. The ingress/gateway maps those prefixes to
   loopback ttyd `7682`/`7681`, strips only the prefix, and forwards HTTP plus WebSocket Upgrade
   bidirectionally, so ttyd receives `/`, `/token`, and `/ws?...` unchanged. Generate a dedicated
-  `terminal-graph.html` plus the todo-server route/endpoint from this contract; apply the identical
-  URL transport rule to `wall.html`, but do not replace the Wall.
+  `terminal-graph.html` plus the todo-server route/endpoint from this contract.
 
 🔴 **§7.0 — EXACT TODO board layout, component-for-component (CEO 2026-06-25; MATCH live `127.0.0.1:9933`
 1:1; GENERATE from this spec — do NOT paste CSS/HTML, Rule 42; do NOT ship a leaner page). The served
@@ -1287,7 +1267,7 @@ the HUD) or via SSE; **merge into the DOM without losing the user's in-progress 
 a half-typed comment). A page that needs a manual refresh to show a new comment = FAIL (J33).
 🔴 **THE PAGE/JS MUST BE SERVED `no-cache` (HARD — 2026-06-28 P0: a stale cached `todos.html` silently
 blanked the comment list + stopped new comments showing for the CEO; a fresh load worked but his tab
-served old JS).** The HTML page responses (`GET /`, `/todos`, `/wall`, `/dashboard`) MUST send
+served old JS).** The HTML page responses (`GET /`, `/todos`, `/dashboard`, `/terminal-graph`) MUST send
 **`Cache-Control: no-cache, no-store, must-revalidate`** (+ `Pragma: no-cache`, `Expires: 0`) so the
 browser always revalidates and a shipped JS fix takes effect on the next load — never a stale-JS bug.
 (The board JSON is already `no-cache`.) Gated J-L. A page response without `no-cache` = FAIL.
@@ -1354,7 +1334,7 @@ This is no longer "preference #1, best" — it is THE required implementation:**
     `href="/"` resolved to the HUD port's empty root).** Because the cross-nav links are relative
     (`/`, `/dashboard`, and `/terminal-graph`), EVERY port that serves a page MUST serve ALL routes. The todo-server
     already proxies the HUD routes; **symmetrically, the queue-server (HUD process) MUST reverse-proxy
-    the TODO routes — `GET /`, `/todos`, `/wall`, `/terminal-graph`, `/todo/*` — to `127.0.0.1:<TODO_PORT>`** (read
+    the TODO routes — `GET /`, `/todos`, `/terminal-graph`, `/todo/*` — to `127.0.0.1:<TODO_PORT>`** (read
     `TODO_PORT` from config; stream the response back unchanged, same discipline as the todo-server's
     HUD pass-through). Result: whichever port the user lands on (HUD_PORT or TODO_PORT), `/` serves the
     TODO board, `/dashboard` serves the HUD, and `/terminal-graph` serves the existing Graph, so the relative cross-nav works from EITHER origin and
@@ -1717,10 +1697,9 @@ Author each from §3–§8. They interoperate because you write them together to
   `main:Boss`. (May reuse the queue-client code pointed at `UPSTREAM_QUEUE_URL`, but fully
   isolated from the inner: separate dir, config, pidfile — the inner's lifecycle never touches it.)
 - `bin/mp` — the CLI (§4 verbs), incl. idempotent spawn + the §4 tmux mapping.
-- `bin/todo-server.py` + `bin/todos.html` + `bin/wall.html` + `bin/terminal-graph.html` — GENERATED:
-  the TODO board API + board→Boss ping (§6), existing Wall, and additive live spatial graph, built
-  from the PLOW tokens (§7) + the §A.2 feature contracts. The pages + server agree on the §6 API;
-  adding the graph never replaces or simplifies the other two pages.
+- `bin/todo-server.py` + `bin/todos.html` + `bin/terminal-graph.html` — GENERATED: the TODO board API
+  + board→Boss ping (§6) and live spatial graph, built from the PLOW tokens (§7) + the §A.2 feature
+  contracts. The pages + server agree on the §6 API; the Graph never replaces or simplifies TODO.
 - `bin/dashboard.html` — GENERATED: the HUD (§7), built from the PLOW tokens + §A.2 **F20–F22 only**
   (agents table + retired/revive + cross-nav; **NO machines/hydration grid — §7.1 removed**),
   served by queue-server at `/dashboard`; queue-server satisfies `/clients`+`/agents`+`/roster`+
@@ -1962,19 +1941,12 @@ exit 0.**
    `attach_base` and `attach_url`, AND the rendered HUD MUST contain that `attach_url` as a
    clickable link in the Boss row. An empty ATTACH cell for a live, heartbeating agent is a
    **false-green** and is rejected.
-8a. **Terminal Wall is live, size-neutral, persistent, interactive, and dynamic (§5.7b/§7.5).**
-    Open `/wall` in real Chromium AND WebKit. The current live non-retired fleet must render as real
-    connected `:7682` ttyd iframes—never text previews, images, canvases, or `capture-pane` output.
-    Assert every iframe URL contains its tile's exact target; all tiles use one identical CSS scale;
-    each whole-pane iframe stays inside `.screen`, occupies ≥92% of its area, and has ≤8px gap on
-    every side. Keep the page open across two metadata cycles and toggle working/idle/all filters:
-    unchanged iframe DOM identity, `src`, and connection stay unchanged. Record a writable operator
-    pane's geometry before/during/after opening the small Wall viewers; it must be byte-identical and
-    every Wall client must carry both `read-only` and `ignore-size`. Click a tile and assert the
-    full-screen iframe uses writable `:7681` for that same exact target. Reconcile a controlled
-    add/remove fixture without recreating unaffected iframe nodes, and trap-clean its session/status/
-    roster artifacts. Save Chromium+WebKit screenshots and recordings. `/terminal-graph`, `/`, and
-    `/dashboard` must still render afterward.
+8a. **Terminal Wall stays removed (§7.5a).** In real Chromium AND WebKit, assert `GET /wall` and
+    `GET /todo/wall` return 404 with no `Set-Cookie` and no `mp_session` on direct TODO `:9933`,
+    symmetric queue `:9900`, tailnet HTTPS, and the authenticated shared/Funnel origin. Assert no
+    served Priorities, HUD, or Terminal Graph page links to `/wall`, and no installed `wall.html`
+    survives `mypeople up --detach` or a supervised restart. Remaining protected routes retain their
+    anonymous 401/no-cookie behavior.
 8b. **Terminal Graph is live, size-neutral, persistent, interactive, and dynamic (§5.7b/§7.6).**
     Open `/terminal-graph` in real Chromium AND WebKit. Assert its JSON contains the current Boss
     plus every live non-retired Boss-owned engineer and exactly the roster-derived edges. Every node
@@ -1988,7 +1960,7 @@ exit 0.**
     the small `:7682` observer connected. Finally spawn a throwaway Boss-owned agent and retire it
     through the normal lifecycle: its node+edge appear then disappear within the polling bound,
     without replacing unaffected nodes. Save Chromium + WebKit screenshots and a short journey
-    recording. Existing `/wall`, `/dashboard`, and `/` still return/render successfully afterward.
+    recording. Existing `/dashboard` and `/` still return/render successfully afterward.
     Repeat the live-pane assertion on all configured front doors: direct TODO `:9933`, symmetric
     queue `:9900`, tailnet HTTPS, and the authenticated shared/Funnel origin. For HTTPS, every iframe
     must use same-origin `/ttyd-ro/`, every corresponding `wss` connection must remain open and
@@ -2032,14 +2004,13 @@ exit 0.**
     Assert: served `:9933/` `<title>` contains `MyPeople - Priorities` AND the visible `<h1>` text == `Priorities`
     (NOT `MyPeople - Priorities`); `:9900/dashboard` contains `MyPeople - HUD`. FAIL if the board renders a
     visible `MyPeople - Priorities` heading/eyebrow.
-9b. **Status badge displays working/idle (§7.5, CEO 2026-06-25) — the §4 hook WRITES it, the HUD must
-    SHOW it.** `/agents` MUST carry a `status` field (not only `state`). `GET /todo/wall` (`:9933`, with
-    `X-Queue-Secret`) MUST return tiles each carrying a display `state`. END-TO-END: spawn an agent, send
-    it a multi-second prompt, and while it runs assert its tile/row shows **`working`** (its status file
-    `status/mc-<sess>/<tab>.json` shows `working`, `/agents` reflects `status:"working"`, the `/todo/wall`
-    tile `state=="working"`); after `Stop` it returns to `idle`. FAIL if the agent churns but the HUD/wall
-    still shows idle — that is the dropped-display bug §7.5 exists to prevent. (A from-memory build that
-    writes the status file but never reads it back into `/agents`/`/todo/wall` trips this gate.)
+9b. **Status badge displays working/idle (§7.5, CEO 2026-06-25) — the §4 hook WRITES it; HUD and Graph
+    must SHOW it.** `/agents` MUST carry a `status` field (not only `state`), and
+    `GET /todo/terminal-graph` MUST expose the current node state. END-TO-END: spawn an agent, send it a
+    multi-second prompt, and while it runs assert its row/node shows **`working`** (its status file
+    `status/mc-<sess>/<tab>.json` shows `working`, `/agents` reflects `status:"working"`, and the Graph
+    node state is working); after `Stop` it returns to `idle`. FAIL if the agent churns but either
+    remaining surface still shows idle.
 9c. **Exact palette (§7 tokens, CEO 2026-06-25).** The served `:9933/` + `:9900/dashboard` MUST define
     the §7 custom properties with the EXACT values — assert the CSS contains `--volt:#D5EF8A`,
     `--midnight:#01000A`, `--dark-bg:#111110`, `--text-dark:#F0F0E8`, `--surface:rgba(255,255,255,0.05)`
