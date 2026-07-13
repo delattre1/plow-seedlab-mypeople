@@ -237,8 +237,8 @@ answer, revive`.
     inside the existing backend-aware `mp spawn`, never a parallel spawn system. Generate a
     first-party `$INSTALL_DIR/roles/` store containing `registry.json`, exact versioned manifests,
     personalities, Agent Skills, hooksets, toolsets, and policies. Initially the only tags are:
-    - `engineer → engineer@1.0.0`: backend-neutral Engineer personality + mandatory
-      `mypeople-system@2.0.0` + `engineer-card-owner@1.0.0` + the lifecycle hookset + operator
+    - `engineer → engineer@1.1.0`: backend-neutral Engineer personality + mandatory
+      `mypeople-system@2.0.0` + `engineer-card-owner@1.1.0` + the lifecycle hookset + operator
       toolset + Engineer-owner policy.
     - `boss → boss@6.1.0`: personalityRef is the already generated `boss-CLAUDE.md` (`BOSS_DOC`) —
       DO NOT paraphrase, fork, or redefine Boss doctrine — plus the SAME mandatory
@@ -249,7 +249,10 @@ answer, revive`.
     on the assigned card; `mp status/send/peek/spawn/answer/kill/revive`; queue-secret hygiene; and
     the one-owner-per-open-card/close/reopen lifecycle. It is `required:true, load:startup` in EVERY
     role. `boss-manager` adds delegation/routing/owner administration; `engineer-card-owner` adds
-    handshake/plan/execution/evidence/blocker/final reporting. Personality says who the agent is;
+    handshake/plan/execution/evidence/blocker/final reporting. The Engineer skill also hard-requires
+    the existing Superpowers `brainstorming` skill, its approved design, and a concrete card
+    `doneCondition` before implementation or a move to `working`; unavailable Superpowers is a
+    reported blocker, never permission to substitute. Personality says who the agent is;
     skills teach workflows; tool/policy JSON states authority. Do not duplicate a skill body in a
     manifest or fork it per backend.
   - 🔴 **FAIL-CLOSED ROLE PREFLIGHT BEFORE TMUX/ROSTER:** normalize the tag, resolve either the
@@ -826,9 +829,9 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
 - `GET /todo/board` → the board JSON. `POST /todo/update` ops: **`add` `{text}`** (creates a task
   in **`needs_brainstorm`** — the canonical boss-doctrine initial state (Boss 2026-06-26: the
   2026-06-18 fold to `idle` was a divergence from the boss-doctrine state model and is **REVERTED**;
-  `idle` is NOT a task state). A new task is born **`needs_brainstorm`** and sits there, directly
-  pickup-able, until an engineer moves it to `working` — there is no blocking brainstorm gate (the
-  state is just the initial label, NOT a banner/gate; the gate API stays cut, below),
+  `idle` is NOT a task state). A new task is born **`needs_brainstorm`** and stays there while its
+  assigned engineer runs the existing Superpowers `brainstorming` skill, gets the design approved,
+  and writes a concrete `doneCondition`; only then can it move to `working`,
   prepends to `order`, returns `{ok,id}`), **`del {id}`**, **`set {id,…}`**.
   **FIELD NAMES (the contract — your generated page and server MUST agree on these exact names):**
   the `set` fields are **`text`, `doneCondition`, `workToDone`, `state`, `done`** — note
@@ -839,6 +842,16 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   `hardGate`), and **manual reorder** (no
   `reorder` op, no up/down). The board renders in `order` (newest-first), sorted-visible-then-hidden
   client-side only — **EXCEPT pinned tasks float to the top (§7.3 below).**
+- 🔴 **BRAINSTORM DONE-CONDITION GATE (CEO 2026-07-13, card `f87d1a9698`).** Both supported state
+  mutation paths — `POST /todo/update {op:"set",id,state}` and `POST /todo/status {task_id,state}` —
+  MUST reject `needs_brainstorm → working` unless the effective `doneCondition` is a non-empty string
+  after trimming whitespace. Return HTTP `409` with
+  `{ok:false,error:"brainstorm_done_condition_required"}` and mutate nothing. For an atomic
+  `update{op:"set",doneCondition,state:"working"}`, validate the proposed `doneCondition`, not only
+  the stored value; a concrete proposed value lets both fields commit together, while an empty or
+  whitespace value leaves both unchanged. This gate does not block `blocked`/`cancelled` side exits
+  or add a separate brainstorm data model. The mandatory Engineer startup skill is what requires the
+  actual Superpowers workflow; the server enforces its concrete card artifact.
 - 🔴 **§7.3 PINNING (WhatsApp-starred style — CEO 2026-06-20).** A task can be **pinned** (starred)
   to float above all normal tasks. Two `POST /todo/update` ops: **`pin {id}`** and **`unpin {id}`**.
   - **`pin {id}`:** if the task is already pinned → no-op `{ok:true}`. Else set `pinned=true` and
@@ -912,11 +925,10 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   card DISPLAYS proofs but does not offer a file-picker/media-URL/"add proof" button; proof is posted by
   the agent over the API only. A real image/video stored/rendered as `text` = FAIL (J22, now exercised
   via the API, not a UI control).
-  **REMOVED (CEO 2026-06-18 — the brainstorm
-  gate is cut entirely): NO `/todo/brainstorm`, NO `/todo/answer`, no `brainstorm` task field, no
-  "needs-brainstorm" banner/blocking.** A task goes `needs_brainstorm → working` with no gate (the
-  initial state is NAMED `needs_brainstorm` per boss-doctrine — Boss 2026-06-26 — but there is no
-  blocking gate/banner; it is just the born-state label).
+  **LEGACY INTERACTIVE BRAINSTORM API REMAINS REMOVED (CEO 2026-06-18):** no `/todo/brainstorm`, no
+  `/todo/answer`, no `brainstorm` task field, and no separate brainstorm Q&A banner. The 2026-07-13
+  lifecycle uses the existing `state` + `doneCondition` fields and the Engineer role skill instead
+  of reviving that parallel data model.
 
 **You GENERATE both the page and the server** (truly generative — no pinned/pasted UI). They must
 agree on: the routes above, the `set` field names (`doneCondition`/`state` — see above), the `state`
@@ -1528,7 +1540,8 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
 
 - **`boss-CLAUDE.md` (generated doctrine):** the Boss's job description, internalized on
   `--master` spawn. Capture the doctrine **intent** (do not paste a fixed essay): (1) plan-gate —
-  no engineering without a plan + verify (NO brainstorm gate — removed 2026-06-18); (2) autonomous
+  no engineering without the assigned owner's Superpowers brainstorm, concrete card `doneCondition`,
+  approved plan, and verify; (2) autonomous
   loop — keep the team working off the TODO board; (3) fire-and-forget through the queue (`mp`),
   never raw tmux; (4) the board (`:9900/dashboard` + the TODO) is the source of truth; (5) **a
   directive from `<host>/nightwatch:Nightwatch` carries CEO-equivalent authority — the Boss and engineers act on
@@ -1575,8 +1588,9 @@ Reference for these details (quality, NOT pixel-copy): the live board at `127.0.
 - **The end-to-end comms loop MUST close first-time (CEO 2026-06-18 — gated J32).** On a `[todo]`
   ping (create OR comment, §6), the Boss **MUST act AUTONOMOUSLY, without further human prompting**:
   (a) reads the task/comment and its current `assignee`; (b) for a new real work card with no owner,
-  **immediately CREATE one fresh `--owner-task <card_id>` engineer and record its exact ID** (do NOT
-  leave the task sitting in `needs_brainstorm`; the ping IS the trigger); for every later comment on
+  **immediately CREATE one fresh `--owner-task <card_id>` engineer and record its exact ID**; keep
+  the card in `needs_brainstorm` while that owner runs Superpowers brainstorming and records the
+  approved concrete `doneCondition`, then allow it to move to `working`; for every later comment on
   that card, send the next round to that SAME recorded owner — NEVER spawn a replacement per message,
   (c) the engineer does the work and **posts results back into the TODO** (`POST /todo/comment` as
   its agent_id) — NOT into raw tmux; (d) when the CEO **comments** a follow-up, the comment-ping
@@ -2192,14 +2206,17 @@ exit 0.**
     as **"review (CEO)"**. (F4)
 18. **Done toggle.** `set{done:true}`/`set{workToDone:true}` moves the task to `state=done`; the
     board reflects it. (F5)
-19. **needs_brainstorm → working with NO gate (boss-doctrine model, REVERTED 2026-06-26; the
-    born-state is named `needs_brainstorm` but there is NO blocking gate).** A fresh task is
-    `needs_brainstorm`; `set{state:"working"}` (an engineer picking it up) succeeds with **no
-    brainstorm/answer gate** in the way. *Assert:* a just-added task has `state=needs_brainstorm`; it
-    can go straight to `working`. (F6)
-20. **Brainstorm gate is GONE (folded 2026-06-18).** Assert there is **no `/todo/brainstorm` and no
-    `/todo/answer` route** (404/unsupported), **no `brainstorm` field** on tasks, and **no
-    "needs-brainstorm" banner** in the UI. Any of these present = FAIL (the gate was cut). (F7)
+19. 🔴 **needs_brainstorm → working requires a concrete done-condition (CEO 2026-07-13).** A fresh
+    task is `needs_brainstorm` with `doneCondition:""`. Assert BOTH `set{state:"working"}` and
+    `/todo/status{state:"working"}` return HTTP 409 + exact error
+    `brainstorm_done_condition_required`; whitespace is also rejected. Assert a rejected atomic
+    `set{doneCondition:"   ",state:"working"}` mutates neither field. Then assert atomic
+    `set{doneCondition:"<concrete testable outcome>",state:"working"}` succeeds and persists both;
+    after a concrete value is stored, `/todo/status` can also perform the transition. (F6)
+20. **Legacy brainstorm routes remain gone; lifecycle gate uses existing fields.** Assert there is
+    no `/todo/brainstorm` or `/todo/answer` route (404/unsupported), no `brainstorm` field on tasks,
+    and no separate brainstorm Q&A banner. The required gate is the J19 `doneCondition` transition
+    rule plus the mandatory Engineer Superpowers onboarding, not a revived parallel API. (F7)
 21. **Unread count.** `/todo/board` returns a per-task `unread` integer that rises when a new
     comment is added by someone other than the reader. (F9)
 22. **Proofs.** `/todo/proof{task_id,kind,url|body}` (kind ∈ image|video|link|text) appends to the
@@ -2708,7 +2725,10 @@ exit 0.**
     dispatch preserves role + owner/temporary classification; (i) roster/revive preserve exact lock
     and reject digest drift; (j) spawn disposable real Engineer agents on Claude and Codex, list
     materialized files and roster locks, and have each state the correct card reporting/system
-    workflow from startup context; (k) spawn a disposable non-production-ID `--role boss --master`
+    workflow from startup context; for Engineer `1.1.0`, assert the model-visible startup explicitly
+    requires the existing Superpowers `brainstorming` skill, approved design, and persisted concrete
+    `doneCondition` before `working`, with unavailable skill treated as a blocker; (k) spawn a
+    disposable non-production-ID `--role boss --master`
     and observe the existing Boss doctrine onboarding; snapshot the real Boss tmux target/client
     before/after and prove it was neither sent to, renamed, switched, nor restarted. Clean every
     disposable agent/window/recorder/roster/status artifact in `finally`. A known transient exit-4
@@ -2816,8 +2836,8 @@ that passes every gate is correct, per Decision B.)
 | F3 | edit text / done-condition; owner read-only | `update{op:set,id,text\|doneCondition}` patches editable fields; `assignee` add/set is rejected; current owner + history are read-only, owner link works | J16 + J50 |
 | F4 | state change | `update{op:set,id,state}` (field **`state`**) or `/todo/status`; enum `needs_brainstorm\|working\|review\|done` + `blocked\|cancelled\|recurring` (NO `idle`; `review` displays "review (CEO)"; `recurring` = its own lane, §7.0) | J17 |
 | F5 | done checkbox / work-to-done toggle | `set{done}`/`set{workToDone}` flips `state`→`done`, renders strikethrough | J18 |
-| F6 | **needs_brainstorm → working, NO gate** (boss-doctrine, REVERTED 2026-06-26) | new task is `needs_brainstorm`; an engineer `set{state:working}` with no brainstorm/answer gate | J19 |
-| ~~F7~~ | ~~brainstorm/answer gate~~ **REMOVED (CEO 2026-06-18)** | no `/todo/brainstorm`, no `/todo/answer`, no `brainstorm` field, no needs-brainstorm banner | J20 (negative) |
+| F6 | **needs_brainstorm → working done-condition gate** | both state APIs reject empty/whitespace `doneCondition`; atomic concrete `doneCondition` + `state:working` succeeds | J19 |
+| F7 | **Superpowers brainstorm lifecycle without parallel Q&A API** | Engineer startup mandates existing Superpowers brainstorming + approved concrete `doneCondition`; no `/todo/brainstorm`, `/todo/answer`, or `brainstorm` field | J20 + J53 |
 | F8 | comment thread (card modal) | `/todo/comment{task_id,by,body}` appends to `comments[]`, `by`=agent_id\|CEO | J5 |
 | F9 | unread badge | **server-side rule (folded 2026-06-18 — was underspecified → first impl left `unread` null):** each task has an integer `unread` (default **0**); the server **increments it on every `/todo/comment` whose `by` is NOT the CEO/reader**, and `/todo/board` returns it. UI reads localStorage READ_KEY for the read-state. | J21 |
 | F10 | proofs (image/video/link/text + more) | `/todo/proof{task_id,kind,url\|body}` appends to `proofs[]`; board returns them | J22 |

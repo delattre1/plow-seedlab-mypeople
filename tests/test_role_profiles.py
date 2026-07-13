@@ -30,6 +30,11 @@ def assert_materialized(bundle, backend, role):
     assert "# MyPeople locked role" in startup
     assert "# Operating MyPeople" in startup
     assert "Role: `%s`" % bundle["role_ref"] in startup
+    if role == "engineer":
+        normalized = " ".join(startup.split())
+        assert "Superpowers brainstorming" in normalized
+        assert "doneCondition" in normalized
+        assert "must not move the card to `working`" in normalized
     for skill in bundle["skills"]:
         common = os.path.join(root, "common", "skills", skill["name"], "SKILL.md")
         assert os.path.isfile(common)
@@ -84,7 +89,7 @@ def main():
                                  "test-model", "claude", role_bundle=engineer_claude)
         words = shlex.split(launch)
         assert "--append-system-prompt-file" in words and "--plugin-dir" in words and "--settings" in words
-        assert "MYPEOPLE_ROLE_REF=engineer@1.0.0" in launch
+        assert "MYPEOPLE_ROLE_REF=engineer@1.1.0" in launch
 
         engineer_codex = by_role["engineer"]["codex"]
         launch = mp.build_launch("test/main:eng", "/tmp", "test/main:Boss", False,
@@ -147,7 +152,7 @@ def main():
                 "debug", "prompt-input", "role-probe"
             ], env={**os.environ, "CODEX_HOME": engineer_codex["codex_home"]}, text=True)
             visible = json.dumps(json.loads(output), ensure_ascii=False)
-            assert "Role: `engineer@1.0.0`" in visible
+            assert "Role: `engineer@1.1.0`" in visible
             assert "# Operating MyPeople" in visible
             assert "# Engineer card-owner workflow" in visible
 

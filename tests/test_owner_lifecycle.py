@@ -123,6 +123,37 @@ def main():
         status, added = request(base, "/todo/update", {"op": "add", "text": "owner regression"})
         assert status == 200 and added["ok"], (status, added)
         task_id = added["id"]
+        fresh = request(base, "/todo/board")[1]["tasks"][task_id]
+        assert fresh["state"] == "needs_brainstorm"
+        assert fresh["doneCondition"] == ""
+
+        # Both state mutation routes enforce the brainstorm artifact before work starts.
+        for path, body in (
+            ("/todo/update", {"op": "set", "id": task_id, "state": "working"}),
+            ("/todo/status", {"task_id": task_id, "state": "working", "by": "CEO"}),
+        ):
+            status, blocked = request(base, path, body)
+            assert status == 409 and blocked["error"] == "brainstorm_done_condition_required"
+        status, blocked = request(base, "/todo/update", {
+            "op": "set", "id": task_id, "doneCondition": " \t", "state": "working",
+        })
+        assert status == 409 and blocked["error"] == "brainstorm_done_condition_required"
+        unchanged = request(base, "/todo/board")[1]["tasks"][task_id]
+        assert unchanged["state"] == "needs_brainstorm" and unchanged["doneCondition"] == ""
+
+        done_condition = "Owner proves the approved lifecycle with automated and live evidence."
+        status, advanced = request(base, "/todo/update", {
+            "op": "set", "id": task_id, "doneCondition": done_condition, "state": "working",
+        })
+        assert status == 200 and advanced["ok"]
+        working = request(base, "/todo/board")[1]["tasks"][task_id]
+        assert working["state"] == "working" and working["doneCondition"] == done_condition
+        assert request(base, "/todo/status", {
+            "task_id": task_id, "state": "needs_brainstorm", "by": "CEO",
+        })[0] == 200
+        assert request(base, "/todo/status", {
+            "task_id": task_id, "state": "working", "by": "CEO",
+        })[0] == 200
         boss = "testhost/main:Boss"
         owner1 = "testhost/main:owner-1"
         owner2 = "testhost/main:owner-2"

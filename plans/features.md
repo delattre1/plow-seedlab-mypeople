@@ -45,7 +45,9 @@ The complete list of things mypeople does. **No spec here.** Spec (Action / Veri
 
 ## Boss doctrine (behavior, not runtime — lives in `boss-claude.md`)
 
-- **Plan-gate** — Boss refuses to launch engineering work until: brainstorm done, PLAN written, E2E Verify drafted, CEO approved.
+- **Plan-gate** — Boss assigns the owner in `needs_brainstorm`, then refuses engineering work until:
+  the owner completes the existing Superpowers brainstorming workflow, persists a concrete card
+  `doneCondition`, writes the PLAN/E2E Verify, and gets CEO approval.
 - **Autonomous loop** — Boss reacts to every Stop notification within 30s. When team is idle with no work, asks the CEO for direction; doesn't go silent.
 
 ---

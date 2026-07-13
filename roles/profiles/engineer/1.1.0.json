@@ -1,0 +1,39 @@
+{
+  "apiVersion": "mypeople.dev/v1alpha1",
+  "kind": "RoleProfile",
+  "metadata": {
+    "name": "engineer",
+    "version": "1.1.0",
+    "tags": ["engineer", "card-owner"]
+  },
+  "spec": {
+    "personalityRef": "personalities/engineer/1.0.0.md",
+    "skills": [
+      {
+        "ref": "skills/mypeople-system/2.0.0/SKILL.md",
+        "required": true,
+        "load": "startup"
+      },
+      {
+        "ref": "skills/engineer-card-owner/1.1.0/SKILL.md",
+        "required": true,
+        "load": "startup"
+      }
+    ],
+    "hookRefs": ["hooksets/mypeople-lifecycle/1.0.0.json"],
+    "toolsetRef": "toolsets/mypeople-operator/1.0.0.json",
+    "policyRef": "policies/engineer-owner/1.0.0.json",
+    "adapters": {
+      "claude": {
+        "version": "1",
+        "personalityMode": "append-system-prompt-file",
+        "skillsMode": "plugin"
+      },
+      "codex": {
+        "version": "1",
+        "personalityMode": "developer_instructions",
+        "skillsMode": "codex-home"
+      }
+    }
+  }
+}
