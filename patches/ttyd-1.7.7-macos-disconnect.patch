@@ -1,0 +1,42 @@
+diff --git a/src/protocol.c b/src/protocol.c
+index 53e65d4..61c6f62 100644
+--- a/src/protocol.c
++++ b/src/protocol.c
+@@ -378,0 +379 @@ int callback_tty(struct lws *wsi, enum lws_callback_reasons reason, void *user,
++          pty_disconnect(pss->process);
+diff --git a/src/pty.c b/src/pty.c
+index 01e9d6b..4754af0 100644
+--- a/src/pty.c
++++ b/src/pty.c
+@@ -92,0 +93,3 @@ pty_process *process_init(void *ctx, uv_loop_t *loop, char *argv[], char *envp[]
++#ifndef _WIN32
++  process->pty = -1;
++#endif
+@@ -110 +113 @@ void process_free(pty_process *process) {
+-  close(process->pty);
++  if (process->pty >= 0) close(process->pty);
+@@ -166,0 +170,18 @@ bool pty_kill(pty_process *process, int sig) {
++void pty_disconnect(pty_process *process) {
++  if (process == NULL) return;
++#ifndef _WIN32
++  if (process->pty >= 0) {
++    close(process->pty);
++    process->pty = -1;
++  }
++  if (process->in != NULL) {
++    uv_close((uv_handle_t *) process->in, close_cb);
++    process->in = NULL;
++  }
++  if (process->out != NULL) {
++    uv_close((uv_handle_t *) process->out, close_cb);
++    process->out = NULL;
++  }
++#endif
++}
++
+diff --git a/src/pty.h b/src/pty.h
+index c3f761c..95754ba 100644
+--- a/src/pty.h
++++ b/src/pty.h
+@@ -66,0 +67 @@ bool pty_kill(pty_process *process, int sig);
++void pty_disconnect(pty_process *process);

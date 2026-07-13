@@ -609,6 +609,25 @@ of at least 65536. Restart only the observer ttyd to apply this; canonical tmux 
 never killed. Verify the effective process limits and open two current-fleet canvases concurrently;
 every WebSocket must receive frames and the ttyd log must contain no new `EMFILE`/`pty_spawn: 24`.
 
+🔴 **The descriptor limit alone is NOT the macOS durability fix (CEO cold-load bounce 2026-07-13).**
+Stock ttyd 1.7.7 can retain the three master-side PTY descriptors after a browser WebSocket closes:
+its disconnect path signals the child, but waits for that session leader to exit before closing the
+masters. On macOS the child can remain in `E` (exiting) state until those masters close. Repeated
+Graph loads therefore accumulate `(bash)` children and `/dev/ptmx` handles until
+`kern.tty.ptmx_max=511`; subsequent cold loads log `pty_spawn: 6 (Device not configured)` and every
+new tile reconnects even though `maxfiles=8192`. Build the observer/writable daemon from ttyd 1.7.7
+with `patches/ttyd-1.7.7-macos-disconnect.patch` (reproducibly via
+`scripts/build-ttyd-mypeople.sh`) and install it as runtime `bin/ttyd-mypeople`. The patch initializes
+the POSIX PTY descriptor to `-1` and, immediately after signalling a disconnected viewer, closes the
+parent master plus both libuv duplicates before the wait/reap completes. BOTH `:7682` read-only and
+`:7681` interactive LaunchAgents use this binary and the 8192/65536 limits. A valid churn proof opens
+and closes at least 600 real ttyd browser connections (> `ptmx_max`) without sending input; afterward
+the daemon must return to its pre-test active-client baselines for `/dev/ptmx`, descriptors, children,
+and throwaway `_vro_` sessions (zero when no other viewers remain), with zero exiting children. Then
+a brand-new Chrome profile loads the real `:9900/terminal-graph`
+for 30 seconds with no interaction: every current iframe must still have an open frame-receiving
+WebSocket and DOM reconnect count must be zero. A warm page or a single post-restart load is not proof.
+
 **5.8 Daemons are detached + pid-tracked + idempotently restartable.** Start with `setsid …
 </dev/null &`, write a pidfile, and a reinstall stops the prior by pidfile then restarts — never
 leave a duplicate. A self-install must not kill the very channel that is driving it: stop a

@@ -9,6 +9,7 @@ const graphOnly = args[0] === "--graph-only";
 const bases = graphOnly ? args.slice(1) : args;
 const httpPassword = process.env.MYPEOPLE_HTTP_PASSWORD || "";
 const proofPath = process.env.MYPEOPLE_PROOF_PATH || "";
+const graphSettleMs = Number(process.env.MYPEOPLE_GRAPH_SETTLE_MS || 3000);
 if (!bases.length) throw new Error("usage: test_home_navigation.mjs [--graph-only] <url> [url ...]");
 
 for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
@@ -46,7 +47,7 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
         const counts = await page.locator("#counts").innerText();
         if (!/\d+ terminals.*\d+ shared tasks/i.test(counts)) throw new Error(`${engine} ${base}: Graph data did not load (${counts})`);
         await page.waitForFunction(() => document.querySelectorAll(".node iframe").length > 0);
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(graphSettleMs);
         const iframeSources = await page.locator(".node iframe").evaluateAll(frames => frames.map(frame => frame.src));
         const isHttps = new URL(page.url()).protocol === "https:";
         if (isHttps && iframeSources.some(src => new URL(src).pathname.indexOf("/ttyd-ro/") !== 0)) {
@@ -58,6 +59,14 @@ for (const [engine, launcher] of [["chromium", chromium], ["webkit", webkit]]) {
         const streaming = terminalSockets.filter(socket => !socket.closed && socket.frames > 0 && /\/ws\?arg=/.test(socket.url));
         if (streaming.length !== iframeSources.length) {
           throw new Error(`${engine} ${base}: only ${streaming.length}/${iframeSources.length} terminal WebSockets stream`);
+        }
+        const reconnectFrames = [];
+        for (const frame of page.frames().filter(frame => frame !== page.mainFrame() && !frame.url().startsWith("about:"))) {
+          const text = await frame.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+          if (/Press\s*.*to Reconnect/i.test(text)) reconnectFrames.push(frame.url());
+        }
+        if (reconnectFrames.length) {
+          throw new Error(`${engine} ${base}: ${reconnectFrames.length}/${iframeSources.length} terminal iframes show reconnect`);
         }
         const identitiesPersist = await page.evaluate(async () => {
           const before = [...document.querySelectorAll(".node iframe")];
