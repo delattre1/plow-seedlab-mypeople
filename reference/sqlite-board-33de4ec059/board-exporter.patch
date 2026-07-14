@@ -1,0 +1,61 @@
+--- /private/tmp/claude-501/-Users-delattre--local-share-mypeople-run-eng/71d3297d-ef03-4938-97a6-1bdcfd68f268/scratchpad/live-bin-backup/board-exporter.py	2026-07-10 12:42:06
++++ /Users/delattre/.local/share/mypeople/bin/board-exporter.py	2026-07-14 10:42:24
+@@ -14,8 +14,22 @@
+ INSTALL_DIR = CFG["INSTALL_DIR"]
+ BOARD_PATH = os.environ.get("BOARD_PATH", os.path.join(INSTALL_DIR, "todos", "board.v2.json"))
+ REPO = C.export_repo_path(CFG)
++BOARD_BACKEND = (os.environ.get("MYPEOPLE_BOARD_BACKEND") or CFG.get("BOARD_BACKEND") or "json").strip().lower()
+ 
+ 
++def read_live_board():
++    """Read the live board regardless of storage engine. SQLite backend reconstructs the identical
++    board dict via BoardStore; the git snapshot stays canonical JSON (human-diffable + rollback source)."""
++    if BOARD_BACKEND == "sqlite":
++        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++        import boardstore as BS
++        db = BS.db_path_for(BOARD_PATH)
++        if not os.path.exists(db):
++            return None
++        return BS.load_board(db)
++    return C.read_json(BOARD_PATH, None)
++
++
+ def git(*args, check=False):
+     return subprocess.run(["git", "-C", REPO] + list(args), capture_output=True, text=True)
+ 
+@@ -51,7 +65,7 @@
+ 
+ def export_once():
+     ensure_repo()
+-    live = C.read_json(BOARD_PATH, None)
++    live = read_live_board()
+     if live is None:
+         return "no_board"
+     new_n = task_count(live)
+@@ -87,13 +101,23 @@
+         print(export_once())
+         return
+     ensure_repo()
++    watch = BOARD_PATH
++    if BOARD_BACKEND == "sqlite":
++        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++        import boardstore as BS
++        watch = BS.db_path_for(BOARD_PATH)  # -wal changes land here on checkpoint; poll the db file
+     last_sig = None
+     while True:
+         try:
+             sig = None
+-            if os.path.exists(BOARD_PATH):
+-                st = os.stat(BOARD_PATH)
+-                sig = (st.st_mtime, st.st_size)
++            # in WAL mode, writes hit board.sqlite3-wal first; stat both so changes are noticed promptly
++            paths = [watch, watch + "-wal"] if BOARD_BACKEND == "sqlite" else [watch]
++            parts = []
++            for pth in paths:
++                if os.path.exists(pth):
++                    st = os.stat(pth)
++                    parts.append((st.st_mtime, st.st_size))
++            sig = tuple(parts) if parts else None
+             if sig != last_sig:
+                 export_once()
+                 last_sig = sig

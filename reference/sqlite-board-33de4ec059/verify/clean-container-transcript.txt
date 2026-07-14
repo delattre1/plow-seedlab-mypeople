@@ -1,0 +1,34 @@
+### CLEAN-CONTAINER BOARD VERIFY — 12.15 ###
+-- installing python3 + git (fresh base) --
+debconf: delaying package configuration, since apt-utils is not installed
+Python 3.11.2
+git version 2.39.5
+
+===== GATE A: board acceptance (owner lifecycle) on the SQLite store =====
+PASS owner lifecycle: validation, authority, routing, turn persistence, close/reopen, UI, culture
+
+===== GATE B: §15 board gates 25b + 25c against the SQLite store =====
+SUSPECT shrink refused: 40->3, wrote /tmp/gate25b_t7s6pau5/board.v2.sqlite3.SUSPECT.1784038304
+== Gate 25b: store engine + atomicity + shrink guard + lossless round-trip ==
+  PASS 25b.1 board store path is board.v2.sqlite3 :: /tmp/gate25b_t7s6pau5/board.v2.sqlite3
+  PASS 25b.sel selector resolves 'sqlite' from queue.env :: resolved=sqlite
+  PASS 25b.2 concurrent writes: no errors
+  PASS 25b.2 integrity_check = ok :: ok
+  PASS 25b.2 journal_mode = wal :: wal
+  PASS 25b.3 shrink refused (save returns False) :: ret=False
+  PASS 25b.3 board unchanged after refused shrink :: 40->40
+  PASS 25b.3 SUSPECT dump written :: ['/tmp/gate25b_t7s6pau5/board.v2.sqlite3.SUSPECT.1784038304']
+  PASS 25b.4 migrator verify LOSSLESS :: LOSSLESS    : True
+== Gate 25c: git-tracked export (from DB) + restore (to DB) ==
+  PASS 25c.1 export commit reconstructs board FROM sqlite :: tasks=30
+  PASS 25c.1 new change lands in a fresh commit
+  PASS 25c.2 exporter is read-only (DB sha unchanged across an export)
+  PASS 25c.3 wipe NOT promoted to HEAD :: head=31 good=31
+  PASS 25c.3 wipe quarantined as SUSPECT :: ['/tmp/gate25c__jqclwes/export-repo/board.v2.json.SUSPECT.1784038304']
+  PASS 25c.4 restore writes HEAD back into the sqlite store :: restored=31 expected=31 :: saved current live board -> /tmp/gate25c__jqclwes/todos/board.v2.json.bak.prerestore.1784038304.json
+restored HEAD:board.v2.json (31 tasks) -> /tmp/gate25c__jqclwes/todos/board.v2.sqlite3 [sqlite]
+  PASS 25c.4 restore wrote a reversible prerestore dump first :: ['/tmp/gate25c__jqclwes/todos/board.v2.json.bak.prerestore.1784038304.json']
+
+BOARD GATES: PASS (25b + 25c, SQLite store)
+
+VERIFY_BOARD_OK

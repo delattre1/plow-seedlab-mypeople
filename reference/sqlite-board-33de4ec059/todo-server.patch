@@ -1,0 +1,46 @@
+--- /private/tmp/claude-501/-Users-delattre--local-share-mypeople-run-eng/71d3297d-ef03-4938-97a6-1bdcfd68f268/scratchpad/live-bin-backup/todo-server.py	2026-07-13 11:52:58
++++ /Users/delattre/.local/share/mypeople/bin/todo-server.py	2026-07-14 10:45:07
+@@ -9,7 +9,15 @@
+ 
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ import mpcommon as C
++import boardstore as BS
+ 
++# Board storage engine: "json" (legacy board.v2.json) or "sqlite" (BoardStore). Defaults to json so
++# the live board is NEVER silently cut over — flipping to sqlite is an explicit, gated operation.
++# Respawn-safe selector: env wins (tests/manual), else the persistent queue.env value read via CFG,
++# else json. supervise.sh re-execs each daemon fresh, so a queue.env BOARD_BACKEND survives respawns
++# WITHOUT a supervisor bounce — keeping the cutover scoped to the board daemons only.
++BOARD_BACKEND = (os.environ.get("MYPEOPLE_BOARD_BACKEND") or C.CFG.get("BOARD_BACKEND") or "json").strip().lower()
++
+ CFG = C.CFG
+ INSTALL_DIR = CFG["INSTALL_DIR"]
+ HOST_ID = CFG["HOST_ID"]
+@@ -192,7 +200,13 @@
+     return {"version": 2, "order": [], "pinSeq": 0, "tasks": {}}
+ 
+ 
++def _sqlite_path():
++    return BS.db_path_for(BOARD_PATH)
++
++
+ def load_board():
++    if BOARD_BACKEND == "sqlite":
++        return BS.load_board(_sqlite_path())
+     b = C.read_json(BOARD_PATH, None)
+     if not b or not isinstance(b, dict):
+         return default_board()
+@@ -203,7 +217,12 @@
+ 
+ 
+ def save_board(board):
+-    """Atomic save + rolling timestamped backup + catastrophic-shrink guard (§3)."""
++    """Atomic save + rolling timestamped backup + catastrophic-shrink guard (§3).
++    SQLite backend: atomic single-transaction row-per-card write (only changed cards), same
++    catastrophic-shrink refusal semantics; durable backups come from the decoupled board-exporter."""
++    if BOARD_BACKEND == "sqlite":
++        os.makedirs(TODOS_DIR, exist_ok=True)
++        return BS.save_board(_sqlite_path(), board)
+     os.makedirs(TODOS_DIR, exist_ok=True)
+     ondisk = C.read_json(BOARD_PATH, None)
+     new_n = len(board.get("tasks", {}))

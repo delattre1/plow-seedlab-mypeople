@@ -105,39 +105,69 @@ live terminal.
   per engineer (§7 agents table) so the CEO can see — and copy — the precise command used to spawn each
   engineer and the command to revive it. A `/agents` row missing `spawn_cmd` (when the roster has one)
   or a HUD that doesn't surface it = FAIL (the CEO read its absence as "the HUD wasn't built right").
-- **TODO board store:** `todos/board.v2.json` = `{version, order:[taskId…], pinSeq:<int>,
+- **TODO board store:** the **logical board** is `{version, order:[taskId…], pinSeq:<int>,
   tasks:{taskId:{id, text, state, assignee, ownerNeedsReplacement:<bool>, ownerHistory:[…], pinned:<bool>, pinRank:<int|null>,
-  comments:[{id,by,kind,body,ts}], …}}}`. `pinned`/`pinRank` (§7.3 PINNING) persist here like every
-  other field; `pinSeq` is the board-level monotonic counter that hands out pin ranks.
+  comments:[{id,by,kind,body,ts}], …}}}` — the exact shape the §6 API serves (unchanged on the wire).
+  It is **persisted in SQLite** at `todos/board.v2.sqlite3` (CEO 2026-07-14, card `33de4ec059`: "THIS
+  IS BOARD ONLY. The JSON, instead of being JSON, I want it to be SQLite" — BOARD store only; the
+  queue/roster/status stores are untouched). Engine (stdlib `sqlite3`, no new deps): WAL journal,
+  `foreign_keys=ON`, `synchronous=FULL`, `busy_timeout`. **Row-per-card** design: each task is one row
+  keyed by `id` storing the **FULL task object as JSON in a `data` column (lossless by construction)**
+  PLUS mirrored **indexed** columns (`state, assignee, pinned, pin_rank, created, updated, done,
+  verified`) for targeted queries; a `meta` table holds `version`, `pinSeq`, and the `order[]`. A
+  per-card content hash lets `save` write **only changed rows** (no whole-store rewrite). `load`
+  returns a FRESH, independent board dict byte-identical to the historical JSON shape (so every §6
+  handler — including the mutate-then-reject paths that rely on discarding an unsaved snapshot — is
+  unchanged). `pinned`/`pinRank` (§7.3 PINNING) persist here like every other field; `pinSeq` is the
+  board-level monotonic counter that hands out pin ranks.
+  - **Engine selector + migration.** `save`/`load` route through the store engine chosen by
+    `MYPEOPLE_BOARD_BACKEND` (env) → else `BOARD_BACKEND` in `queue.env` → else `sqlite`. A reversible
+    one-shot migrator converts `board.v2.json` ↔ `board.v2.sqlite3` losslessly (`to-sqlite`/`to-json`/
+    `verify`), so an existing JSON install cuts over (and can roll back) without data loss. The
+    canonical human-diffable **backup + rollback format stays JSON**, produced by the decoupled
+    git-export layer below (which reads the store and commits `board.v2.json`).
 - 🔴 **RUNTIME DATA ISOLATION (HARD — 2026-06-26 incident: a daily-driver board was WIPED).**
-  ALL mutable runtime state — `todos/board.v2.json`, `run/` (roster, pidfiles, agent cwds),
-  `status/` — lives **under `$INSTALL_DIR`** and is **per-install + per-`HOST_ID`**. Two consequences
+  ALL mutable runtime state — the board store `todos/board.v2.sqlite3` (+ its `-wal`/`-shm`
+  sidecars), `run/` (roster, pidfiles, agent cwds), `status/` — lives **under `$INSTALL_DIR`** and is
+  **per-install + per-`HOST_ID`**. Two consequences
   the install MUST guarantee:
   1. **No data-dir collision between instances.** Each instance binds its OWN `$INSTALL_DIR`,
      `HOST_ID`, ports, and `QUEUE_SECRET`; a second/parallel instance (e.g. a v2 / fresh hydrate)
-     MUST use a DIFFERENT `$INSTALL_DIR` (different `$HOME`) so its `todos/board.v2.json` path can
+     MUST use a DIFFERENT `$INSTALL_DIR` (different `$HOME`) so its `todos/board.v2.sqlite3` path can
      **never** be the same file as another running instance's. A hydrate writes only under its own
      `$INSTALL_DIR` — it is structurally incapable of writing another install's board.
   2. **Runtime data is NEVER inside a git-tracked tree.** The live board is mutated continuously; if
-     `$INSTALL_DIR` (or the dir holding `todos/board.v2.json`) is a git working tree, a `git
+     `$INSTALL_DIR` (or the dir holding the board store) is a git working tree, a `git
      stash`/`checkout`/`reset` there will revert the live board to a stale commit and **wipe it**
      (exact root cause of the 2026-06-26 incident — the dev instance ran from a git checkout with the
      board git-TRACKED). RULE: keep `$INSTALL_DIR` out of any repo; if you must develop by running
      from a checkout, **gitignore the entire runtime data dir** (`todos/`, `run/`, `status/`,
-     `board.v2.json*`) and `git rm --cached` it so no git op can ever touch the live board.
+     `board.v2.json*`, `board.v2.sqlite3*`) and `git rm --cached` it so no git op can ever touch the
+     live board.
 - 🔴 **DEFENSIVE BOARD BACKUP (defense-in-depth so a wipe is always recoverable).** `save(board)`
-  MUST be **atomic** (write `board.v2.json.tmp` then `os.replace` — never a partial truncate) AND,
-  before replacing, **roll a timestamped backup** `todos/board.v2.json.bak.<epoch>` keeping the **last
-  ~20** (prune older). Additionally, **refuse a catastrophic shrink**: if the about-to-be-saved board
-  has **&lt; 50% of the task count** of the on-disk board AND the on-disk board had &gt; 5 tasks, do
-  NOT overwrite — write the new state to `board.v2.json.SUSPECT.<epoch>` and log loudly instead, so a
-  bad reload can never silently clobber a full board. (Verify J-gate §below.)
-- 🔴 **GIT-TRACKED BOARD EXPORT (separate-tree history + restore — card 2bf4e6c76a3a).** The rolling
-  `.bak.*` layer above is same-dir/same-disk defense-in-depth; this is the **versioned history** layer
-  that survives a full data-dir loss and recovers the board to **up-to-date**. Contract (build it
-  generatively — a small exporter + a restore CLI, NOT pasted source):
-  1. **A decoupled, READ-ONLY exporter** (its own process, NEVER inside `save()`) watches the live
-     `board.v2.json` and, on every change, commits a canonical (sorted-key, pretty) snapshot into a
+  MUST be **atomic and crash-safe**: a **single SQLite transaction** (`BEGIN IMMEDIATE` … upsert the
+  changed rows, delete removed rows, rewrite `meta` … `COMMIT`) under WAL + `synchronous=FULL`, so a
+  reader never sees a torn board and a crash mid-save leaves the last committed board intact — the
+  SQLite equivalent of the old temp-file-`os.replace` discipline, and stronger (no whole-file rewrite,
+  no partial-truncate window). **`PRAGMA integrity_check` MUST report `ok`** after concurrent writes.
+  The **rolling versioned backup that survives a full data-dir loss is the decoupled git-export layer
+  below** (it commits a canonical JSON snapshot of the board on every change) — in SQLite mode that
+  git history REPLACES the old same-dir `board.v2.json.bak.<epoch>` rotation (which existed only
+  because a JSON save rewrote the whole file anyway). Additionally, **refuse a catastrophic shrink**:
+  if the about-to-be-saved board has **&lt; 50% of the task count** of the on-disk board AND the
+  on-disk board had &gt; 5 tasks, do NOT commit — dump the suspect state to
+  `board.v2.sqlite3.SUSPECT.<epoch>` (a JSON dump of the refused state) and log loudly instead, so a bad reload can never silently
+  clobber a full board. (Verify J-gate §below.)
+- 🔴 **GIT-TRACKED BOARD EXPORT (separate-tree history + restore — card 2bf4e6c76a3a).** This is the
+  **versioned history** layer that survives a full data-dir loss and recovers the board to
+  **up-to-date** — and in SQLite mode it is ALSO the primary same-disk backup (there is no `.bak.*`
+  rotation). The canonical snapshot format stays **JSON** (human-diffable, the rollback source, and
+  the migrator's `to-json` target). Contract (build it generatively — a small exporter + a restore
+  CLI, NOT pasted source):
+  1. **A decoupled, READ-ONLY exporter** (its own process, NEVER inside `save()`) reads the live board
+     **through the store engine** (backend-agnostic: it reconstructs the identical board dict whether
+     the store is JSON or SQLite) and, on every change (in SQLite mode it polls `board.v2.sqlite3`
+     + its `-wal` sidecar for mtime/size), commits a canonical (sorted-key, pretty) JSON snapshot into a
      **SEPARATE git repo in a SEPARATE directory OUTSIDE any working tree the server runs from**.
      🔴 **The repo path MUST be PER-INSTANCE, not per-host (boardgit 2026-06-26: keying by `HOST_ID`
      alone made two instances on the SAME host — e.g. `:9933` + a new `:9963` — collide into ONE backup
@@ -150,7 +180,7 @@ live terminal.
      `EXPORT_REPO` in `queue.env`.) Its own `.git`; every git command pinned to that repo
      (`git -C <EXPORT_REPO>`). FAIL if two co-hosted instances share a backup repo. The
      exporter **only reads** the live board and **only writes** into the export repo — it has **no code
-     path that writes `board.v2.json`** and **never runs `git checkout/stash/reset` in the live tree**.
+     path that writes the live board store** and **never runs `git checkout/stash/reset` in the live tree**.
      This is what makes the backup mechanism *structurally incapable* of repeating the 2026-06-26 wipe.
   2. **Wipe is auto-detected, not silently promoted:** the exporter carries the same &lt;50%-shrink
      guard — a snapshot with &lt;50% of the last-good HEAD task count (and HEAD &gt; 5) is committed to a
@@ -162,9 +192,10 @@ live terminal.
   3. **`board-restore` is the ONLY writer of the live board on the recovery path** — manual, never
      automatic. It reads a snapshot via `git -C <EXPORT_REPO> show <ref>:board.v2.json` (default HEAD =
      current), **refuses an empty/unparseable snapshot**, **snapshots the current live board to
-     `*.bak.prerestore.<epoch>` FIRST** (reversible), then writes the live board **atomically** (`.tmp`
-     + `os.replace`, so the running server never reads a torn file). It performs **no git op in the
-     live tree.** Restoring HEAD brings the board back to its last committed (= up-to-date) state.
+     `*.bak.prerestore.<epoch>.json` FIRST** (reversible), then writes the live board **atomically
+     through the store engine** (a single SQLite transaction in sqlite mode; temp-file + `os.replace`
+     in JSON mode — either way the running server never reads a torn board). It performs **no git op in
+     the live tree.** Restoring HEAD brings the board back to its last committed (= up-to-date) state.
   (Verify J-gate 25c.)
 
 ---
@@ -866,7 +897,7 @@ The TODO app (`todo-server.py`, `:9933`) serves `todos.html` at `/` and `/todos`
   - **Board ordering (server + the page agree):** render **pinned tasks FIRST, sorted by `pinRank`
     ascending** (pin order), THEN the normal tasks in `order` (newest-first). `pinned`+`pinRank` are
     returned per task on `/todo/board` and **persist** across page reload AND server restart (they
-    live in `board.v2.json`, §4).
+    live in the board store, §4).
   - This is NOT the cut "manual reorder" (no `reorder` op, no up/down arrows) — it is a binary
     pin/unpin star with an UNCAPPED, insertion-ordered pinned group.
 - `POST /todo/comment {task_id, by, body}` — append a thread comment; **`by` is the author's
@@ -1255,7 +1286,7 @@ gone missing).** The card modal MUST carry a **clear, labelled delete control** 
 button in the modal's state row, visually distinct/danger-styled). Clicking it **confirms first**
 (`confirm()` / a confirm step is fine), then calls **`POST /todo/update {op:'del', id}`** (the server
 op already exists → `STORE.delete(id)`), and on success **closes the modal + reloads the board** so the
-task is gone from the list. The delete MUST remove the task from the board store (`board.v2.json`) — it
+task is gone from the list. The delete MUST remove the task from the board store (`board.v2.sqlite3`) — it
 is gone from BOTH the rendered board and the data, surviving reload. Gated J-O.
 🔴 **§7.6 — One-click DONE control = the on-card `.check` toggle (CEO 2026-06-25; MATCH the live app
 `127.0.0.1:9933` 1:1 — it is NOT a dropdown and NOT the star).** The PRIMARY complete-a-task control is a
@@ -2246,24 +2277,32 @@ exit 0.**
     grep the page for the agent's `spawn_cmd` text, or its copy/expand affordance carrying it) AND its
     `mp revive <agent_id>`. FAIL if `/agents` omits `spawn_cmd` while the roster has one, or the HUD
     page shows no spawn command for a live agent. (F-spawncmd)
-25b. 🔴 **Runtime data isolation + defensive board backup (§3, 2026-06-26 incident).** Assert:
-    (1) the served board path is **`$INSTALL_DIR/todos/board.v2.json`** (under this install's own
+25b. 🔴 **Runtime data isolation + defensive board backup (§3, 2026-06-26 incident; board→SQLite card
+    `33de4ec059`).** Assert:
+    (1) the served board store is **`$INSTALL_DIR/todos/board.v2.sqlite3`** (under this install's own
     `$INSTALL_DIR`), and `$INSTALL_DIR` is NOT inside a git working tree — `git -C "$INSTALL_DIR"
-    rev-parse` fails, OR `todos/board.v2.json` is git-ignored there. (2) `save()` is atomic and rolls
-    a timestamped `todos/board.v2.json.bak.<epoch>` (after ≥2 mutations there is ≥1 `.bak.*`; count
-    capped ~20). (3) **catastrophic-shrink guard:** with a multi-task board on disk, a forced reload
-    that would drop &gt;50% of tasks does NOT overwrite `board.v2.json` (it writes `*.SUSPECT.*`
-    instead). FAIL if the board path is shared/ git-tracked, no backups roll, or a >50% shrink
-    silently overwrites the live board. (F-isolation)
+    rev-parse` fails, OR the board store (`board.v2.sqlite3*`) is git-ignored there. (2) `save()` is a
+    single atomic SQLite transaction under WAL+`synchronous=FULL` (no torn read; a crash mid-save keeps
+    the last committed board) and **`PRAGMA integrity_check` = `ok`** after ≥2 concurrent mutations; the
+    rolling versioned backup is the git-export layer (gate 25c), not a same-dir `.bak.*` rotation.
+    (3) **catastrophic-shrink guard:** with a multi-task board on disk, a forced reload that would drop
+    &gt;50% of tasks does NOT commit (it writes `board.v2.sqlite3.SUSPECT.<epoch>` (a JSON dump of the refused state) instead).
+    (4) **engine round-trip is lossless:** the migrator `verify` deep-equals `board.v2.json` →
+    `board.v2.sqlite3` → board (counts + full structure identical); and the engine selector resolves
+    `MYPEOPLE_BOARD_BACKEND` (env) → `BOARD_BACKEND` (queue.env) → `sqlite`. FAIL if the store is
+    shared/ git-tracked, if `integrity_check` ≠ ok, if a >50% shrink silently commits, or if a
+    JSON↔SQLite round-trip loses data. (F-isolation)
 25c. 🔴 **Git-tracked board export + restore (§3, card 2bf4e6c76a3a).** Drive the whole recovery loop
     against a sandbox board+export-repo (same exporter/restore code, env-pointed so the live board is
     never risked) and assert: (1) **change→commit** — a board change lands a NEW commit in the export
-    repo whose `HEAD:board.v2.json` contains the change; (2) **read-only** — the exporter does NOT write
-    the live board (sha256 of the board file is unchanged across an export run) and the export repo is a
+    repo whose `HEAD:board.v2.json` contains the change (the exporter reconstructs canonical JSON
+    **from the SQLite store**); (2) **read-only** — the exporter does NOT write the live board store
+    (sha256 of `board.v2.sqlite3` is unchanged across an export run) and the export repo is a
     SEPARATE dir outside any server working tree; (3) **wipe auto-quarantined** — wiping the board to
     &lt;50% makes the exporter write a `*.SUSPECT.*` and KEEP `HEAD:board.v2.json` at the last good full
     count (never promoted); (4) **restore-to-CURRENT** — `board-restore` (HEAD) brings the live board
-    back to the full count INCLUDING the change, after writing a `*.bak.prerestore.*` first. FAIL if the
+    back to the full count INCLUDING the change (writing it back into the SQLite store via a single
+    transaction), after writing a `*.bak.prerestore.<epoch>.json` first. FAIL if the
     export path writes the live board, if a wipe is promoted to HEAD, or if restore does not recover the
     current state. (F-gitexport) **(5) PER-INSTANCE repo (boardgit 2026-06-26)** — two installs that
     differ in `$INSTALL_DIR`/port MUST resolve to DIFFERENT `EXPORT_REPO` paths (the path carries an
@@ -2394,7 +2433,7 @@ exit 0.**
     and the 6th is NOT pinned (still in its normal position). (d) **Unpin restores:** `unpin` one →
     its `pinned=false`/`pinRank=null`, it drops back to its normal `order` position, and the
     remaining pins keep their order; a 6th pin now succeeds. (e) **Persists:** the `pinned`+`pinRank`
-    survive a board re-fetch AND a `todo-server` restart (they're in `board.v2.json`) — re-read
+    survive a board re-fetch AND a `todo-server` restart (they're in the board store) — re-read
     `/todo/board` after a restart and the pinned set + order are unchanged. (f) **UI affordance:** the
     rendered page has a per-card ★ control and a distinct pinned group at top. Any of: pin not on top,
     wrong pin order, a 6th pin accepted, unpin not restoring, or pins lost on reload/restart = FAIL.
@@ -2865,7 +2904,7 @@ that passes every gate is correct, per Decision B.)
 | F20 | agents table (id/state/backend/boss/summary/attach) | `/agents` carries those fields + `tmux_target` | J8 |
 | F21 | retired engineers + Revive button | `/roster` carries `retired`; `POST /revive{agent_id}` works | J25 |
 | F22 | ITEM 2 — cross-nav TODO ↗ + live/stale pill + agent count | static link to `:9933`; count from `/agents` | J6 |
-| F23 | PIN tasks (WhatsApp-starred, §7.3) — ★ pin/unpin, pinned float to top in pin order, MAX 5, unpin restores, persists | `update{op:'pin'\|'unpin',id}`; `pinned`+`pinRank` in `board.v2.json`; board renders pinned-first by `pinRank` | J37 |
+| F23 | PIN tasks (WhatsApp-starred, §7.3) — ★ pin/unpin, pinned float to top in pin order, MAX 5, unpin restores, persists | `update{op:'pin'\|'unpin',id}`; `pinned`+`pinRank` in the board store; board renders pinned-first by `pinRank` | J37 |
 | F24 | jump-to-latest in comment thread (§7.4) — floating ↓ button, appears when scrolled up, smooth-scrolls to newest, hides at bottom | client-only: thread `scroll` handler toggles the button; click → `scrollTo({top:scrollHeight,behavior:'smooth'})` | J38 |
 
 **§A.3 How the UI is verified now (Decision B — behavioral, NOT checksum).** There is **no

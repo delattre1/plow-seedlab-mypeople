@@ -1,0 +1,117 @@
+############################################################################
+# CARD 33de4ec059 — BOARD JSON -> SQLite — PROOF TRANSCRIPT                 #
+# owner main:eng-149 ; isolation proofs + live cutover (CEO 'Go!' 07-14)    #
+############################################################################
+
+===== 1. MIGRATOR LOSSLESS (real 297-card board, isolation) =====
+original : {"tasks": 297, "comments": 12948, "proofs": 758, "ownerHistory": 221, "order": 297, "pinSeq": 37}
+roundtrip: {"tasks": 297, "comments": 12948, "proofs": 758, "ownerHistory": 221, "order": 297, "pinSeq": 37}
+counts_match: True
+deep_equal  : True
+LOSSLESS    : True
+
+===== 2. FULL BOARD API PARITY (JSON vs SQLite, 23 ops) =====
+harness json OK: 23 ops, final tasks=298
+harness sqlite OK: 23 ops, final tasks=298
+
+transcript identical: True (23 ops)
+final board identical: True (tasks json=298 sqlite=298)
+
+PARITY: IDENTICAL
+
+===== 3. CONCURRENCY + RESTART + INTEGRITY =====
+concurrency: 100/100 comments landed, unique_bodies=100, errors=0, wall=81.9s (819ms/op serialized)
+restart: card present=True, comments persisted=100, total tasks=298 (source had 297)
+second restart: comments=101 (expect 101)
+integrity_check: ok
+
+ROBUSTNESS: PASS
+
+===== 4. LATENCY (SQLite ~2x faster writes) =====
+=== per-op latency, same 297-card board, sequential (fair) ===
+json    write: avg= 1272ms p50=  905ms p95= 3752ms | read: avg=  366ms p50=  181ms p95= 1310ms
+sqlite  write: avg=  589ms p50=  416ms p95= 1496ms | read: avg=  384ms p50=  287ms p95=  991ms
+
+===== 5. BACKUP/RESTORE (SQLite->git-JSON->SQLite lossless) =====
+exporter: committed 
+export snapshot lossless vs live SQLite: True (tasks=297)
+restore: restored HEAD:board.v2.json (297 tasks) -> /var/folders/pt/1ns3rzs94r9_27gj30c4114w0000gn/T/backup_4q304032/todos/board.v2.sqlite3 [sqlite] 
+restored SQLite board lossless vs original: True (tasks=297)
+
+BACKUP/RESTORE (sqlite): PASS
+
+===== 6. SCHEMA =====
+CREATE TABLE meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE tasks (
+    id        TEXT PRIMARY KEY,
+    state     TEXT,
+    assignee  TEXT,
+    pinned    INTEGER,
+    pin_rank  INTEGER,
+    created   REAL,
+    updated   REAL,
+    done      INTEGER,
+    verified  INTEGER,
+    hash      TEXT NOT NULL,
+    data      TEXT NOT NULL
+);
+CREATE INDEX idx_tasks_state    ON tasks(state);
+CREATE INDEX idx_tasks_assignee ON tasks(assignee);
+CREATE INDEX idx_tasks_pinned   ON tasks(pinned);
+CREATE INDEX idx_tasks_updated  ON tasks(updated);
+
+===== 7. INDEXED QUERY PLAN =====
+=== indexed query: cards by state, no 10MB parse (uses idx_tasks_state) ===
+done|242
+cancelled|33
+review|9
+needs_brainstorm|5
+recurring|4
+working|4
+--- query plan proves index use ---
+QUERY PLAN
+`--SEARCH tasks USING INDEX idx_tasks_state (state=?)
+
+===== 8. LIVE CUTOVER (production, 2026-07-14) =====
+LIVE CUTOVER — card 33de4ec059 — 2026-07-14 (CEO "Go!")
+=======================================================
+Baseline (pre): API tasks=301 order=301 pinSeq=38 version=v2
+
+Respawn-safety refinement (necessary for a scoped cutover):
+  supervise.sh re-execs each daemon ~every 10s inheriting the supervisor env, and exports only
+  PATH/LANG/LC_ALL — not arbitrary keys. A pure env flip reverts on respawn OR forces a full
+  supervisor bounce (restarts queue-server/ttyd/boss — out of board scope). Fix: selector reads
+  env MYPEOPLE_BOARD_BACKEND first, else CFG.get("BOARD_BACKEND") from queue.env (mpcommon).
+  Each fresh respawn re-reads queue.env -> cutover survives respawns, NO supervisor bounce.
+
+Procedure executed (loss-free, race-free):
+  1. Deployed boardstore.py + updated todo-server/exporter/restore to live bin (json default).
+     Off-tree backup of board.v2.json + code backup of prior live bin.
+  2. SIGSTOP supervisor (paused keep-alive loop only; queue-server/ttyd/boss kept running).
+  3. SIGTERM todo-server (sole writer) -> board.v2.json final & frozen (mtime 10:41:48).
+  4. migrate_board.py to-sqlite frozen JSON -> board.v2.sqlite3 : 301 tasks.
+  5. Verify: DB tasks=301 == frozen JSON 301 ; PRAGMA integrity_check = ok.
+  6. queue.env += export BOARD_BACKEND="sqlite" ; SIGTERM exporter.
+  7. SIGCONT supervisor -> respawned todo-server + exporter in sqlite mode.
+
+Incident (fixed): first respawn crash-looped ~NameError: 'CFG' not defined — selector at line 19
+  referenced CFG which is assigned at line 21 (the old env-only selector didn't reference CFG so
+  position never mattered). Fixed live+stage: CFG.get -> C.CFG.get. Board API was refusing
+  connections during the loop (~a few min); NO writes were accepted in that window (server down),
+  so nothing was lost — clients retry. Recovery immediate after fix.
+
+Post-cutover verification:
+  - API /todo/board: tasks=301 order=301 pinSeq=38 version=v2 (== baseline).
+  - Write path IS SQLite: test comment via API (id c86da781) read back directly from the DB;
+    board.v2.json mtime UNCHANGED at 10:41:48 (JSON no longer the store); DB mtime advancing.
+  - PRAGMA integrity_check = ok ; journal_mode = wal.
+  - Single instance each: supervisor, todo-server, board-exporter (no duplicate respawns).
+  - Backup continuity: board-exporter commits canonical JSON snapshots FROM the DB into the
+    decoupled git backup repo every cycle (13:45:27, 13:45:51, 13:46:07 ... tasks=301).
+
+Rollback (unchanged, any time): set queue.env BOARD_BACKEND back to json (or remove), restart the
+  two board daemons -> they read the untouched board.v2.json. DB discarded. JSON never mutated by
+  the sqlite path (mtime proof above).

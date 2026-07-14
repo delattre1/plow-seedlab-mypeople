@@ -1,0 +1,30 @@
+--- /private/tmp/claude-501/-Users-delattre--local-share-mypeople-run-eng/71d3297d-ef03-4938-97a6-1bdcfd68f268/scratchpad/live-bin-backup/board-restore	2026-07-10 12:42:06
++++ /Users/delattre/.local/share/mypeople/bin/board-restore	2026-07-14 10:42:24
+@@ -14,6 +14,7 @@
+ INSTALL_DIR = CFG["INSTALL_DIR"]
+ BOARD_PATH = os.environ.get("BOARD_PATH", os.path.join(INSTALL_DIR, "todos", "board.v2.json"))
+ REPO = C.export_repo_path(CFG)
++BOARD_BACKEND = (os.environ.get("MYPEOPLE_BOARD_BACKEND") or CFG.get("BOARD_BACKEND") or "json").strip().lower()
+ 
+ 
+ def main():
+@@ -31,6 +32,19 @@
+     if not isinstance(obj, dict) or "tasks" not in obj:
+         print("ERROR: snapshot has no tasks — refusing to restore", file=sys.stderr)
+         return 2
++    if BOARD_BACKEND == "sqlite":
++        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++        import boardstore as BS
++        db = BS.db_path_for(BOARD_PATH)
++        # snapshot current live SQLite board to JSON first (reversible)
++        if os.path.exists(db):
++            pre = "%s.bak.prerestore.%d.json" % (BOARD_PATH, int(time.time()))
++            C.atomic_write(pre, json.dumps(BS.load_board(db), ensure_ascii=False).encode())
++            print("saved current live board -> %s" % pre)
++        # write via BoardStore (bypass shrink guard: restore is a deliberate operator action)
++        BS.save_board(db, obj, shrink_guard=False)
++        print("restored %s:board.v2.json (%d tasks) -> %s [sqlite]" % (ref, len(obj.get("tasks", {})), db))
++        return 0
+     # snapshot current live board first (reversible)
+     if os.path.exists(BOARD_PATH):
+         pre = "%s.bak.prerestore.%d" % (BOARD_PATH, int(time.time()))
