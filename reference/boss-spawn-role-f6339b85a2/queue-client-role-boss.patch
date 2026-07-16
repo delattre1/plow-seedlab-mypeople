@@ -1,0 +1,17 @@
+--- a/bin/queue-client.py
++++ b/bin/queue-client.py
+@@ -131,6 +131,14 @@
+                 args += ["--cwd", payload["cwd"]]
+             if payload.get("is_master"):
+                 args += ["--master"]
++            # A Boss (--master) MUST carry --role boss or do_spawn fail-closes ("refusing a
++            # bundle-less Boss", rc=2). The board's spawn-backend buttons submit {is_master:true}
++            # with no role, which is why every dashboard Boss-spawn failed and only Revive worked
++            # (card f6339b85a2). Default the boss role for any master spawn; an explicit payload
++            # role still wins.
++            role = payload.get("role") or ("boss" if payload.get("is_master") else "")
++            if role:
++                args += ["--role", role]
+             if payload.get("model"):
+                 args += ["--model", payload["model"]]
+             r = subprocess.run(args, capture_output=True, text=True, timeout=120)
