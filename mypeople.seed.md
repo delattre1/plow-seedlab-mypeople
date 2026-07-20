@@ -630,10 +630,19 @@ under `$INSTALL_DIR/run/tailscale-state/`, `tailscale --socket=<sock> up …`, t
 > runs normally.
 
 **5.7 ttyd: one writable instance, per-tab attach via URL args — each attach lands on ITS OWN
-window, isolated per viewer.** Run `ttyd -W -a -p 7681 <attach-helper>`. `-a` (allow URL args) is
-mandatory so `?arg=-t&arg=mc-<sess>:<tab>` reaches the helper. **Verify ttyd FUNCTIONALLY (HTTP
-200 on the attach URL) and by bare option name — ttyd 1.7.x rewrites argv for `ps`
-(`-t key=value` shows as `key value`), so never grep for `disableLeaveAlert=true`.** A stray
+window, isolated per viewer.** Run `ttyd -W -a -p 7681 -t disableLeaveAlert=true <attach-helper>`.
+`-a` (allow URL args) is mandatory so `?arg=-t&arg=mc-<sess>:<tab>` reaches the helper.
+🔴 **`-t disableLeaveAlert=true` is MANDATORY on EVERY ttyd instance — writable AND the read-only
+tile instance.** Without it xterm.js keeps its `beforeunload` guard and closing a terminal tab
+prompts *"Are you sure you want to leave this page?"*. A terminal view is disposable; that prompt
+is pure friction and the CEO rejects it. Put client options AFTER `-p <port>` so any supervisor
+`pgrep` liveness pattern keyed on `ttyd … -p <port>` stays an exact prefix of the live argv.
+**Verify ttyd FUNCTIONALLY (HTTP 200 on the attach URL) and by bare option name — ttyd 1.7.x
+rewrites argv for `ps` (`-t key=value` shows as `key value`), so never grep for
+`disableLeaveAlert=true`.** The option is never in the served `index.html` either (it ships to the
+client over the WebSocket as a `2{...}` SET_PREFERENCES frame), so the only true proof is the wire
+or a browser: connect to `ws://127.0.0.1:<port>/ws` (subprotocol `tty`, send `{"AuthToken":""}`)
+and assert the `2{ "disableLeaveAlert": true }` frame arrives. A stray
 `pkill` must not blank the human's window: run ttyd under a supervisor (respawn within ~2s).
 🔴 **Do NOT run a bare `tmux attach -t mc-<sess>:<tab>` per connection.** All clients attached to
 the SAME tmux session share ONE current-window (tmux forces every client of a session to the same
@@ -2754,6 +2763,14 @@ exit 0.**
 - **`tailscale ip -4` empty on a no-systemd node** → missing default-socket symlink (§5.6).
 - **ttyd "not running" false-fail** → grepped `disableLeaveAlert=true`; ttyd rewrote argv —
   verify functionally (HTTP 200) and by bare option name (§5.7).
+- **Closing a terminal tab prompts "Are you sure you want to leave this page?"** → a ttyd instance
+  launched without `-t disableLeaveAlert=true` (§5.7). Check EVERY instance, writable and
+  read-only; and check the port the board actually links to (`TTYD_BROWSER_PORT`/`TTYD_PORT`), not
+  the default 7681 — an install whose config moved the port can leave a correctly-flagged ttyd
+  running on the old port while the browser talks to an unflagged one. Editing a running
+  `supervise.sh` is NOT enough: bash has the loop body parsed in memory, so it respawns the OLD
+  argv — restart the supervisor itself, and note macOS has no `setsid` (detach via
+  `start_new_session`/`nohup`, per §5.8).
 - **Self-install kills its own driver** → a daemon stop was pre-emptive; do graceful in-place
   handoff right before relaunch (§5.8).
 
